@@ -2,10 +2,11 @@
 
 #include <QMainWindow>
 
+#include "DiscordSettings.h"
 #include "MediaLibrary.h"
 
 class QAction;
-namespace mv { class DiscordPresence; }
+namespace mv { class ArtworkResolver; class DiscordPresence; }
 
 class QAudioOutput;
 class QLabel;
@@ -42,13 +43,14 @@ private slots:
     void toggleFullscreen();
     void applyFilter(const QString &text);
     void onDiscordToggled(bool on);
-    void promptDiscordClientId();
+    void openDiscordSettings();
 
 private:
     // Tells Discord what is playing. Pass a position when the player hasn't
     // caught up yet (e.g. right after a seek); -1 reads it from the player.
     void updatePresence(qint64 positionOverrideMs = -1);
     void seekTo(qint64 ms);
+    void applyDiscordSettings(const mv::DiscordSettings &s);
     void setFullscreenMode(bool on);
     void showControls();
     void populate();
@@ -79,6 +81,9 @@ private:
     QTimer *m_pollTimer = nullptr;   // watches the cursor while fullscreen
     QPoint m_lastCursor;
     mv::DiscordPresence *m_discord = nullptr;
+    mv::ArtworkResolver *m_art = nullptr;
+    mv::DiscordSettings m_discordCfg;
+    QString m_artKey;               // lookup key of the picture for the current item
     QAction *m_discordToggle = nullptr;
     bool m_wasMaximized = false;
 };

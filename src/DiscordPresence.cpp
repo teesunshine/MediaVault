@@ -102,6 +102,14 @@ QJsonObject buildActivity(const Activity &a, qint64 nowMs)
     act["type"] = a.kind == Activity::Kind::Listening ? 2 : 3;
     act["details"] = clampText(a.details);
 
+    if (!a.largeImage.isEmpty()) {
+        QJsonObject assets;
+        assets["large_image"] = a.largeImage.trimmed();
+        if (!a.largeText.isEmpty())
+            assets["large_text"] = clampText(a.largeText);
+        act["assets"] = assets;
+    }
+
     if (a.playing) {
         if (!a.state.isEmpty())
             act["state"] = clampText(a.state);

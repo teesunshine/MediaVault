@@ -20,6 +20,8 @@ struct Activity {
     bool playing = false;
     qint64 positionMs = 0;
     qint64 durationMs = 0;    // 0 = unknown
+    QString largeImage;       // asset key from the developer portal, or an https URL
+    QString largeText;        // tooltip shown when hovering the image
 };
 
 // --- Pure helpers (unit tested) -------------------------------------------

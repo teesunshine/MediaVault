@@ -40,12 +40,18 @@ Formats depend on the Qt Multimedia backend (FFmpeg on Qt 6.5+), which covers mk
 
 ## Discord status
 
-MediaVault can show what you're watching or listening to on Discord (title, show/season/episode or artist/album, and a progress/elapsed bar). It talks to your local Discord desktop app, so Discord must be running.
+MediaVault can show what you're watching or listening to on Discord: title, show/season/episode or artist/album, a progress bar, and a picture. It talks to your local Discord desktop app, so Discord must be running.
 
 1. Create an application at <https://discord.com/developers/applications>. Its **name** is what Discord displays ("Watching *MediaVault*"), so name it accordingly.
 2. Copy its **Application ID**.
-3. In MediaVault: **File → Show on Discord**, and paste the ID when asked (change it later via **File → Discord Application ID…**).
+3. In MediaVault: **File → Show on Discord**, and paste the ID when asked. Everything below lives in **File → Discord Settings…**.
 4. In Discord, make sure *User Settings → Activity Privacy → Share my activity* is on.
+
+### Picture
+
+- **No picture**
+- **My own image**: upload a picture in the developer portal under *Rich Presence → Art Assets*, then enter the name you gave it (for example `logo`) as the Image ID. A direct `https://` image link also works.
+- **Cover art and posters**: album covers come from MusicBrainz and the Cover Art Archive (no key needed). Movie and show posters come from [TMDB](https://www.themoviedb.org/settings/api), which needs a free API key that you paste into the dialog. Titles are guessed from file and folder names, so `The.Matrix.1999.1080p.mkv` and `Alien (1979)` both work. Your own Image ID is used as the fallback whenever nothing is found.
 
 The status clears when you stop playback or quit. If Discord isn't running yet, MediaVault retries every 15 seconds.
 

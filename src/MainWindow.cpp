@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 
+#include "ArtworkResolver.h"
 #include "DiscordPresence.h"
+#include "DiscordSettingsDialog.h"
 
 #include <QAction>
 #include <QAudioOutput>
@@ -9,7 +11,6 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMediaPlayer>
@@ -32,7 +33,6 @@
 namespace {
 constexpr int kPathRole = Qt::UserRole;
 constexpr const char *kRootKey = "library/root";
-constexpr const char *kDiscordIdKey = "discord/clientId";
 constexpr const char *kDiscordEnabledKey = "discord/enabled";
 
 QString episodeLabel(const mv::MediaItem &ep)
@@ -143,7 +143,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Discord Rich Presence ("Watching ..." / "Listening to ...")
     m_discord = new mv::DiscordPresence(this);
-    m_discord->setClientId(QSettings().value(kDiscordIdKey).toString());
+    m_art = new mv::ArtworkResolver(this);
+    connect(m_art, &mv::ArtworkResolver::resolved, this, [this](const QString &key, const QString &url) {
+        // Only act when a picture was found; on failure the fallback is already
+        // showing, and refreshing would just retry the failed lookup.
+        if (key == m_artKey && !url.isEmpty())
+            updatePresence();
+    });
+    applyDiscordSettings(mv::DiscordSettings::load());
     connect(m_discord, &mv::DiscordPresence::statusChanged, this,
             [this](const QString &text) { statusBar()->showMessage(text, 6000); });
     m_discordToggle = fileMenu->addAction(tr("Show on &Discord"));
@@ -151,11 +158,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_discordToggle->setChecked(QSettings().value(kDiscordEnabledKey, false).toBool());
     connect(m_discordToggle, &QAction::toggled, this, &MainWindow::onDiscordToggled);
     // Restore last session's choice (only if an Application ID is saved).
-    if (m_discordToggle->isChecked() && !QSettings().value(kDiscordIdKey).toString().trimmed().isEmpty())
+    if (m_discordToggle->isChecked() && !m_discordCfg.clientId.isEmpty())
         m_discord->setEnabled(true);
     else
         m_discordToggle->setChecked(false);
-    fileMenu->addAction(tr("Discord &Application ID…"), this, &MainWindow::promptDiscordClientId);
+    fileMenu->addAction(tr("Discord &Settings…"), this, &MainWindow::openDiscordSettings);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("&Quit"), QKeySequence::Quit, this, &QWidget::close);
 
@@ -390,19 +397,68 @@ void MainWindow::updatePresence(qint64 positionOverrideMs)
         a.state = category == 0 ? tr("Movie") : QString();
     }
 
+    // Picture: nothing, the user's own image, or looked-up cover art / posters
+    // (falling back to the user's image until the lookup finishes or if it fails).
+    QString image;
+    QString imageText;
+    m_artKey.clear();
+    if (m_discordCfg.imageMode != mv::DiscordSettings::ImageMode::None) {
+        image = m_discordCfg.imageId;
+        if (m_discordCfg.imageMode == mv::DiscordSettings::ImageMode::Artwork) {
+            if (category == 2 && crumbs.size() >= 3) {
+                m_artKey = QStringLiteral("music:%1|%2").arg(crumbs.at(0), crumbs.at(1)).toLower();
+                m_art->requestMusic(m_artKey, crumbs.at(0), crumbs.at(1));
+                imageText = crumbs.at(1);
+            } else if (category == 1 && crumbs.size() >= 3) {
+                const mv::TitleGuess g = mv::guessTitle(crumbs.at(0));
+                m_artKey = QStringLiteral("tv:%1|%2").arg(g.title.toLower()).arg(g.year);
+                m_art->requestVideo(m_artKey, true, g.title, g.year);
+                imageText = crumbs.at(0);
+            } else if (category == 0) {
+                const mv::TitleGuess g = mv::guessTitle(a.details);
+                m_artKey = QStringLiteral("movie:%1|%2").arg(g.title.toLower()).arg(g.year);
+                m_art->requestVideo(m_artKey, false, g.title, g.year);
+                imageText = a.details;
+            }
+            QString url;
+            if (!m_artKey.isEmpty() && m_art->cached(m_artKey, url) && !url.isEmpty())
+                image = url;
+        }
+    }
+    a.largeImage = image;
+    a.largeText = imageText.isEmpty() ? a.details : imageText;
+
     a.playing = m_player->playbackState() == QMediaPlayer::PlayingState;
     a.positionMs = positionOverrideMs >= 0 ? positionOverrideMs : m_player->position();
     a.durationMs = m_player->duration();
     m_discord->setActivity(a);
 }
 
+void MainWindow::applyDiscordSettings(const mv::DiscordSettings &s)
+{
+    m_discordCfg = s;
+    m_discord->setClientId(s.clientId);
+    m_art->setTmdbKey(s.tmdbKey);
+}
+
+void MainWindow::openDiscordSettings()
+{
+    DiscordSettingsDialog dlg(m_discordCfg, this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const mv::DiscordSettings s = dlg.result();
+    s.save();
+    applyDiscordSettings(s);
+    updatePresence();
+}
+
 void MainWindow::onDiscordToggled(bool on)
 {
     QSettings().setValue(kDiscordEnabledKey, on);
-    if (on && QSettings().value(kDiscordIdKey).toString().trimmed().isEmpty()) {
-        promptDiscordClientId();
-        // The prompt may have been cancelled; keep the checkbox honest.
-        if (QSettings().value(kDiscordIdKey).toString().trimmed().isEmpty()) {
+    if (on && m_discordCfg.clientId.isEmpty()) {
+        openDiscordSettings();
+        // The dialog may have been cancelled; keep the checkbox honest.
+        if (m_discordCfg.clientId.isEmpty()) {
             QSignalBlocker block(m_discordToggle);
             m_discordToggle->setChecked(false);
             QSettings().setValue(kDiscordEnabledKey, false);
@@ -411,22 +467,6 @@ void MainWindow::onDiscordToggled(bool on)
     }
     m_discord->setEnabled(on);
     updatePresence();
-}
-
-void MainWindow::promptDiscordClientId()
-{
-    bool ok = false;
-    const QString current = QSettings().value(kDiscordIdKey).toString();
-    const QString id = QInputDialog::getText(
-        this, tr("Discord Application ID"),
-        tr("Create an application at discord.com/developers/applications and paste its\n"
-           "Application ID here. The application's name is what Discord shows\n"
-           "(e.g. \"MediaVault\")."),
-        QLineEdit::Normal, current, &ok).trimmed();
-    if (!ok)
-        return;
-    QSettings().setValue(kDiscordIdKey, id);
-    m_discord->setClientId(id);
 }
 
 void MainWindow::togglePlay()
