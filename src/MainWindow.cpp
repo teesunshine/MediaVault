@@ -7,6 +7,7 @@
 #include "ThemePanel.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QActionGroup>
 #include <QAudioOutput>
 #include <QCoreApplication>
