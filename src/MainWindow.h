@@ -1,11 +1,19 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QMainWindow>
+#include <QSet>
+#include <QVector>
 
 #include "DiscordSettings.h"
 #include "MediaLibrary.h"
+#include "ThemeData.h"
 
 class QAction;
+class QActionGroup;
+class QMenu;
+class QStackedWidget;
+class ThemePanel;
 namespace mv { class ArtworkResolver; class DiscordPresence; }
 
 class QAudioOutput;
@@ -44,6 +52,7 @@ private slots:
     void applyFilter(const QString &text);
     void onDiscordToggled(bool on);
     void openDiscordSettings();
+    void onItemClicked(QTreeWidgetItem *item, int column);
 
 private:
     // Tells Discord what is playing. Pass a position when the player hasn't
@@ -51,6 +60,20 @@ private:
     void updatePresence(qint64 positionOverrideMs = -1);
     void seekTo(qint64 ms);
     void applyDiscordSettings(const mv::DiscordSettings &s);
+
+    // --- Themes ---
+    QStringList themeRoots() const;
+    QString userThemesDir() const;
+    void reloadThemes();
+    void rebuildThemeMenu();
+    void applyTheme(const QString &id);
+    void ensureThemePanel();
+    void updateStage();                 // video, or the theme's web page for music
+    void pushThemeState();              // sends what's playing to the web theme
+    void showMusicView(const QString &type, const QString &artist, const QString &album);
+    int categoryOf(QTreeWidgetItem *item) const;   // 0 movies, 1 TV, 2 music, -1 none
+    void playPath(const QString &path);
+    QString libraryJson() const;
     void setFullscreenMode(bool on);
     void showControls();
     void populate();
@@ -85,5 +108,18 @@ private:
     mv::DiscordSettings m_discordCfg;
     QString m_artKey;               // lookup key of the picture for the current item
     QAction *m_discordToggle = nullptr;
+
+    QStackedWidget *m_stage = nullptr;      // [video | theme panel]
+    ThemePanel *m_themePanel = nullptr;     // created when the first web theme is applied
+    QMenu *m_themeMenu = nullptr;
+    QActionGroup *m_themeGroup = nullptr;
+    QVector<mv::ThemeInfo> m_themes;
+    mv::ThemeInfo m_activeTheme;
+    bool m_hasTheme = false;
+    QSet<QString> m_registeredFonts;
+    bool m_musicStage = false;              // true while music is what the stage should show
+    QString m_viewType = QStringLiteral("nowplaying");
+    QString m_viewArtist, m_viewAlbum;
+    QElapsedTimer m_themePushTimer;
     bool m_wasMaximized = false;
 };

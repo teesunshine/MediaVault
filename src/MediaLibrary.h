@@ -26,11 +26,13 @@ struct Show {
 struct Album {
     QString name;
     QVector<MediaItem> tracks;
+    QString coverPath;   // cover/folder/front/album/artwork.(jpg|png|webp) in the album folder, if any
 };
 
 struct Artist {
     QString name;
     QVector<Album> albums;
+    QString imagePath;   // artist/folder/photo.(jpg|png|webp) in the artist folder, if any
 };
 
 struct Library {

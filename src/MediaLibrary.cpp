@@ -127,6 +127,24 @@ void scanTv(const QString &dir, Library &lib)
               [&](const Show &a, const Show &b) { return c.compare(a.name, b.name) < 0; });
 }
 
+// Looks in `dir` (not recursively) for an image whose base name is one of
+// `bases`, in that order of preference. Case-insensitive.
+QString findImage(const QString &dir, const QStringList &bases)
+{
+    static const QStringList exts = {"jpg", "jpeg", "png", "webp"};
+    const QDir d(dir);
+    const QStringList files = d.entryList(QDir::Files);
+    for (const QString &base : bases) {
+        for (const QString &f : files) {
+            const QFileInfo fi(f);
+            if (fi.completeBaseName().compare(base, Qt::CaseInsensitive) == 0
+                && exts.contains(fi.suffix().toLower()))
+                return d.absoluteFilePath(f);
+        }
+    }
+    return {};
+}
+
 QString stripTrackNumber(const QString &name)
 {
     static const QRegularExpression re(QStringLiteral("^\\d{1,3}\\s*[-._)]?\\s+"));
@@ -163,6 +181,9 @@ void scanMusic(const QString &dir, Library &lib)
     for (auto aIt = tree.begin(); aIt != tree.end(); ++aIt) {
         Artist artist;
         artist.name = aIt.key();
+        if (artist.name != QLatin1String("Unknown Artist"))
+            artist.imagePath = findImage(root.absoluteFilePath(artist.name),
+                                         {"artist", "folder", "photo", "band"});
         for (auto bIt = aIt.value().begin(); bIt != aIt.value().end(); ++bIt) {
             Album album;
             album.name = bIt.key();
@@ -170,6 +191,9 @@ void scanMusic(const QString &dir, Library &lib)
             // File names usually start with the track number, so sort on the path.
             std::sort(album.tracks.begin(), album.tracks.end(),
                       [&](const MediaItem &a, const MediaItem &b) { return c.compare(a.path, b.path) < 0; });
+            if (!album.tracks.isEmpty())
+                album.coverPath = findImage(QFileInfo(album.tracks.first().path).absolutePath(),
+                                            {"cover", "folder", "front", "album", "artwork"});
             artist.albums.push_back(album);
         }
         std::sort(artist.albums.begin(), artist.albums.end(),

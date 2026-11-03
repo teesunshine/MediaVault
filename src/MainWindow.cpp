@@ -3,17 +3,25 @@
 #include "ArtworkResolver.h"
 #include "DiscordPresence.h"
 #include "DiscordSettingsDialog.h"
+#include "ThemeBridge.h"
+#include "ThemePanel.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QAudioOutput>
+#include <QCoreApplication>
 #include <QCursor>
+#include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFontDatabase>
 #include <QHBoxLayout>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMediaPlayer>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
@@ -21,6 +29,8 @@
 #include <QShortcut>
 #include <QSlider>
 #include <QSplitter>
+#include <QStackedWidget>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QStyle>
 #include <QTimer>
@@ -32,6 +42,8 @@
 
 namespace {
 constexpr int kPathRole = Qt::UserRole;
+constexpr int kCoverRole = Qt::UserRole + 1;   // album cover file (music leaves and albums)
+constexpr const char *kThemeSetting = "ui/theme";
 constexpr const char *kRootKey = "library/root";
 constexpr const char *kDiscordEnabledKey = "discord/enabled";
 
@@ -115,7 +127,9 @@ MainWindow::MainWindow(QWidget *parent)
     auto *right = new QWidget;
     auto *rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(0, 6, 6, 6);
-    rightLayout->addWidget(m_video, 1);
+    m_stage = new QStackedWidget;
+    m_stage->addWidget(m_video);   // the theme panel is added when a web theme is first used
+    rightLayout->addWidget(m_stage, 1);
     rightLayout->addWidget(m_nowPlaying);
     rightLayout->addWidget(m_controlsBar);
 
@@ -166,9 +180,15 @@ MainWindow::MainWindow(QWidget *parent)
     fileMenu->addSeparator();
     fileMenu->addAction(tr("&Quit"), QKeySequence::Quit, this, &QWidget::close);
 
+    auto *viewMenu = menuBar()->addMenu(tr("&View"));
+    m_themeMenu = viewMenu->addMenu(tr("&Theme"));
+    m_themeGroup = new QActionGroup(this);
+    m_themeGroup->setExclusive(true);
+
     // --- Wiring ---------------------------------------------------------
     connect(m_tree, &QTreeWidget::itemActivated, this, &MainWindow::onItemActivated);
     connect(m_tree, &QTreeWidget::itemDoubleClicked, this, &MainWindow::onItemActivated);
+    connect(m_tree, &QTreeWidget::itemClicked, this, &MainWindow::onItemClicked);
     connect(m_search, &QLineEdit::textChanged, this, &MainWindow::applyFilter);
 
     connect(m_playBtn, &QPushButton::clicked, this, &MainWindow::togglePlay);
@@ -177,7 +197,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(prevBtn, &QPushButton::clicked, this, &MainWindow::playPrevious);
     connect(fullBtn, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
 
-    connect(m_volume, &QSlider::valueChanged, this, [this](int v) { m_audio->setVolume(v / 100.0f); });
+    connect(m_volume, &QSlider::valueChanged, this, [this](int v) {
+        m_audio->setVolume(v / 100.0f);
+        pushThemeState();
+    });
 
     connect(m_seek, &QSlider::sliderPressed, this, [this] { m_seeking = true; });
     connect(m_seek, &QSlider::sliderReleased, this, [this] {
@@ -194,6 +217,10 @@ MainWindow::MainWindow(QWidget *parent)
         if (!m_seeking)
             m_seek->setValue(static_cast<int>(p));
         m_timeLabel->setText(formatTime(p) + " / " + formatTime(m_player->duration()));
+        if (m_themePushTimer.elapsed() > 500) {   // keep the web theme's clock moving
+            m_themePushTimer.restart();
+            pushThemeState();
+        }
     });
     connect(m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState s) {
         m_playBtn->setIcon(style()->standardIcon(
@@ -218,6 +245,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (isFullScreen() && !m_controlsBar->underMouse()) {
             m_controlsBar->hide();
             m_video->setCursor(Qt::BlankCursor);
+            m_stage->setCursor(Qt::BlankCursor);
         } else if (isFullScreen()) {
             m_hideTimer->start();
         }
@@ -246,6 +274,10 @@ MainWindow::MainWindow(QWidget *parent)
     new QShortcut(Qt::Key_F11, this, this, &MainWindow::toggleFullscreen);
     new QShortcut(Qt::Key_Right, this, this, [this] { seekTo(m_player->position() + 10000); });
     new QShortcut(Qt::Key_Left, this, this, [this] { seekTo(qMax<qint64>(0, m_player->position() - 10000)); });
+
+    m_themePushTimer.start();
+    reloadThemes();
+    applyTheme(QSettings().value(kThemeSetting).toString());
 }
 
 void MainWindow::openSavedLibrary()
@@ -316,10 +348,14 @@ void MainWindow::populate()
         auto *artistItem = new QTreeWidgetItem(music, QStringList(artist.name));
         for (const auto &album : artist.albums) {
             auto *albumItem = new QTreeWidgetItem(artistItem, QStringList(album.name));
+            albumItem->setData(0, kCoverRole, album.coverPath);
             for (const auto &t : album.tracks)
-                makeLeaf(albumItem, t.title, t.path);
+                makeLeaf(albumItem, t.title, t.path)->setData(0, kCoverRole, album.coverPath);
         }
     }
+
+    if (m_themePanel)
+        m_themePanel->bridge()->setLibrary(libraryJson());
 
     m_tree->expandToDepth(0);
     applyFilter(m_search->text());
@@ -339,14 +375,64 @@ QList<QTreeWidgetItem *> MainWindow::leafItems() const
 
 void MainWindow::onItemActivated(QTreeWidgetItem *item, int)
 {
-    if (item && item->data(0, kPathRole).isValid())
+    if (item && item->data(0, kPathRole).isValid()) {
+        if (categoryOf(item) == 2) {
+            // Started from the library list: show the now-playing page.
+            m_viewType = QStringLiteral("nowplaying");
+            m_viewArtist.clear();
+            m_viewAlbum.clear();
+        }
         playItem(item);
+    }
+}
+
+int MainWindow::categoryOf(QTreeWidgetItem *item) const
+{
+    if (!item)
+        return -1;
+    while (item->parent())
+        item = item->parent();
+    return m_tree->indexOfTopLevelItem(item);
+}
+
+void MainWindow::onItemClicked(QTreeWidgetItem *item, int)
+{
+    // Clicking an artist or album in Music opens its page in the theme.
+    if (!item || categoryOf(item) != 2 || item->data(0, kPathRole).isValid() || !item->parent())
+        return;
+    if (!item->parent()->parent())
+        showMusicView(QStringLiteral("artist"), item->text(0), QString());
+    else
+        showMusicView(QStringLiteral("album"), item->parent()->text(0), item->text(0));
+}
+
+void MainWindow::showMusicView(const QString &type, const QString &artist, const QString &album)
+{
+    m_viewType = type;
+    m_viewArtist = artist;
+    m_viewAlbum = album;
+    m_musicStage = true;
+    updateStage();
+    pushThemeState();
+}
+
+void MainWindow::playPath(const QString &path)
+{
+    for (QTreeWidgetItem *leaf : leafItems()) {
+        if (leaf->data(0, kPathRole).toString() == path) {
+            m_tree->setCurrentItem(leaf);
+            playItem(leaf);
+            return;
+        }
+    }
 }
 
 void MainWindow::playItem(QTreeWidgetItem *item)
 {
     const QString path = item->data(0, kPathRole).toString();
     m_current = item;
+    m_musicStage = categoryOf(item) == 2;
+    updateStage();
     m_player->setSource(QUrl::fromLocalFile(path));
     m_player->play();
 
@@ -366,6 +452,7 @@ void MainWindow::seekTo(qint64 ms)
 
 void MainWindow::updatePresence(qint64 positionOverrideMs)
 {
+    pushThemeState();   // every playback change goes to the web theme too
     if (!m_discord)
         return;
 
@@ -469,6 +556,190 @@ void MainWindow::onDiscordToggled(bool on)
     updatePresence();
 }
 
+// ---------------------------------------------------------------------------
+// Themes
+// ---------------------------------------------------------------------------
+
+QString MainWindow::userThemesDir() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/themes");
+}
+
+QStringList MainWindow::themeRoots() const
+{
+    const QString app = QCoreApplication::applicationDirPath();
+    // Bundled first so that a user theme with the same id overrides it.
+    return {app + QStringLiteral("/themes"),
+            QDir::cleanPath(app + QStringLiteral("/../Resources/themes")),
+            userThemesDir()};
+}
+
+void MainWindow::reloadThemes()
+{
+    QDir().mkpath(userThemesDir());
+    m_themes = mv::scanThemes(themeRoots());
+    rebuildThemeMenu();
+}
+
+void MainWindow::rebuildThemeMenu()
+{
+    m_themeMenu->clear();
+    const QString current = m_hasTheme ? m_activeTheme.id : QString();
+
+    auto addChoice = [&](const QString &text, const QString &id, const QString &tip) {
+        QAction *a = m_themeMenu->addAction(text);
+        a->setCheckable(true);
+        a->setData(id);
+        a->setToolTip(tip);
+        a->setChecked(id == current);
+        m_themeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, id] { applyTheme(id); });
+    };
+
+    addChoice(tr("Default"), QString(), tr("The plain MediaVault look"));
+    for (const mv::ThemeInfo &t : m_themes) {
+        QString label = t.name;
+        if (!t.author.isEmpty())
+            label += tr("  (%1)").arg(t.author);
+        addChoice(label, t.id, t.description);
+    }
+
+    m_themeMenu->addSeparator();
+    m_themeMenu->addAction(tr("Open Themes Folder"), this, [this] {
+        QDir().mkpath(userThemesDir());
+        QDesktopServices::openUrl(QUrl::fromLocalFile(userThemesDir()));
+    });
+    m_themeMenu->addAction(tr("Reload Themes"), this, [this] {
+        const QString id = m_hasTheme ? m_activeTheme.id : QString();
+        reloadThemes();
+        applyTheme(id);
+    });
+}
+
+void MainWindow::ensureThemePanel()
+{
+    if (m_themePanel)
+        return;
+    m_themePanel = new ThemePanel;
+    m_stage->addWidget(m_themePanel);
+
+    ThemeBridge *b = m_themePanel->bridge();
+    connect(b, &ThemeBridge::togglePlayRequested, this, &MainWindow::togglePlay);
+    connect(b, &ThemeBridge::playRequested, this, [this] {
+        if (m_player->playbackState() != QMediaPlayer::PlayingState)
+            togglePlay();
+    });
+    connect(b, &ThemeBridge::pauseRequested, this, [this] {
+        if (m_player->playbackState() == QMediaPlayer::PlayingState)
+            m_player->pause();
+    });
+    connect(b, &ThemeBridge::nextRequested, this, &MainWindow::playNext);
+    connect(b, &ThemeBridge::previousRequested, this, &MainWindow::playPrevious);
+    connect(b, &ThemeBridge::seekRequested, this, [this](qint64 ms) { seekTo(ms); });
+    connect(b, &ThemeBridge::volumeRequested, this, [this](int v) { m_volume->setValue(v); });
+    connect(b, &ThemeBridge::playTrackRequested, this, &MainWindow::playPath);
+    connect(b, &ThemeBridge::openArtistRequested, this,
+            [this](const QString &artist) { showMusicView(QStringLiteral("artist"), artist, QString()); });
+    connect(b, &ThemeBridge::openAlbumRequested, this, [this](const QString &artist, const QString &album) {
+        showMusicView(QStringLiteral("album"), artist, album);
+    });
+    connect(b, &ThemeBridge::showNowPlayingRequested, this,
+            [this] { showMusicView(QStringLiteral("nowplaying"), QString(), QString()); });
+    connect(b, &ThemeBridge::toggleFullscreenRequested, this, &MainWindow::toggleFullscreen);
+
+    b->setLibrary(libraryJson());
+}
+
+void MainWindow::applyTheme(const QString &id)
+{
+    // Start from the plain look, then layer the chosen theme on top.
+    qApp->setStyleSheet(QString());
+    m_hasTheme = false;
+    m_activeTheme = mv::ThemeInfo();
+
+    for (const mv::ThemeInfo &t : std::as_const(m_themes)) {
+        if (t.id == id) {
+            m_activeTheme = t;
+            m_hasTheme = true;
+            break;
+        }
+    }
+
+    if (m_hasTheme) {
+        for (const QString &font : std::as_const(m_activeTheme.fontPaths)) {
+            if (!m_registeredFonts.contains(font)) {
+                QFontDatabase::addApplicationFont(font);
+                m_registeredFonts.insert(font);
+            }
+        }
+        qApp->setStyleSheet(mv::themeStyleSheet(m_activeTheme));
+
+        if (m_activeTheme.hasEntry()) {
+            if (ThemePanel::isAvailable()) {
+                ensureThemePanel();
+                m_themePanel->loadTheme(m_activeTheme);
+            } else {
+                statusBar()->showMessage(
+                    tr("This build has no web themes; only the theme's style sheet is applied."), 8000);
+            }
+        }
+    }
+
+    QSettings().setValue(kThemeSetting, m_hasTheme ? m_activeTheme.id : QString());
+    for (QAction *a : m_themeGroup->actions())
+        a->setChecked(a->data().toString() == (m_hasTheme ? m_activeTheme.id : QString()));
+
+    updateStage();
+    pushThemeState();
+}
+
+void MainWindow::updateStage()
+{
+    const bool web = m_themePanel && m_hasTheme && m_activeTheme.hasEntry();
+    const bool showPanel = web && m_musicStage;
+    m_stage->setCurrentWidget(showPanel ? static_cast<QWidget *>(m_themePanel)
+                                        : static_cast<QWidget *>(m_video));
+}
+
+QString MainWindow::libraryJson() const
+{
+    return QString::fromUtf8(QJsonDocument(mv::musicLibraryToJson(m_library)).toJson(QJsonDocument::Compact));
+}
+
+void MainWindow::pushThemeState()
+{
+    if (!m_themePanel)
+        return;
+
+    mv::PlaybackSnapshot s;
+    if (m_current) {
+        QStringList crumbs;
+        for (QTreeWidgetItem *p = m_current; p && p->parent(); p = p->parent())
+            crumbs.prepend(p->text(0));
+
+        if (categoryOf(m_current) == 2 && crumbs.size() >= 3) {
+            s.kind = QStringLiteral("music");
+            s.artist = crumbs.at(0);
+            s.album = crumbs.at(1);
+            s.title = crumbs.at(2);
+            s.cover = mv::fileUrl(m_current->data(0, kCoverRole).toString());
+        } else {
+            s.kind = QStringLiteral("video");
+            s.title = crumbs.isEmpty() ? m_current->text(0) : crumbs.last();
+        }
+    }
+    s.playing = m_player->playbackState() == QMediaPlayer::PlayingState;
+    s.positionMs = m_player->position();
+    s.durationMs = m_player->duration();
+    s.volume = m_volume->value();
+    s.viewType = m_viewType;
+    s.viewArtist = m_viewArtist;
+    s.viewAlbum = m_viewAlbum;
+
+    m_themePanel->bridge()->setState(
+        QString::fromUtf8(QJsonDocument(mv::snapshotToJson(s)).toJson(QJsonDocument::Compact)));
+}
+
 void MainWindow::togglePlay()
 {
     switch (m_player->playbackState()) {
@@ -544,6 +815,7 @@ void MainWindow::setFullscreenMode(bool on)
         m_pollTimer->stop();
         m_hideTimer->stop();
         m_video->unsetCursor();
+        m_stage->unsetCursor();
         m_left->show();
         m_nowPlaying->show();
         m_controlsBar->show();
@@ -560,6 +832,7 @@ void MainWindow::showControls()
 {
     m_controlsBar->show();
     m_video->unsetCursor();
+    m_stage->unsetCursor();
     if (isFullScreen())
         m_hideTimer->start();
 }

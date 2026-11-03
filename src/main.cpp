@@ -1,9 +1,14 @@
 #include <QApplication>
+#include <QCoreApplication>
 
 #include "MainWindow.h"
 
 int main(int argc, char *argv[])
 {
+#ifdef MV_HAVE_WEBENGINE
+    // Recommended by Qt when WebEngine and other OpenGL users share a process.
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+#endif
     QApplication app(argc, argv);
     QApplication::setApplicationName("MediaVault");
     QApplication::setOrganizationName("MediaVault");

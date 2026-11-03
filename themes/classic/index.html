@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classic</title>
+<style>
+  :root { --bg:#12141a; --panel:#1b1e27; --text:#e8eaf0; --dim:#8b92a6; --accent:#5aa9ff; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  .tabs { display: flex; gap: 4px; padding: 14px 20px 0; }
+  .tab { padding: 8px 16px; border-radius: 8px 8px 0 0; color: var(--dim); }
+  .tab.active { background: var(--panel); color: var(--text); }
+  main { flex: 1; overflow: auto; background: var(--panel); margin: 0 20px; border-radius: 0 12px 0 0; padding: 24px; }
+  h2 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: var(--dim); margin-bottom: 18px; }
+  .back { color: var(--accent); margin-bottom: 14px; display: inline-block; }
+
+  .now { display: flex; gap: 28px; align-items: center; justify-content: center; min-height: 100%; flex-wrap: wrap; }
+  .now .cover { width: min(320px, 60vw); aspect-ratio: 1; border-radius: 12px; background: #262a36 center/cover no-repeat;
+                display: grid; place-items: center; font-size: 80px; color: #3a4052; }
+  .now .meta { max-width: 360px; }
+  .now .title { font-size: 28px; font-weight: 700; }
+  .now .artist, .now .album { color: var(--dim); font-size: 17px; }
+  .now .artist:hover, .now .album:hover { color: var(--accent); cursor: pointer; }
+  .empty { color: var(--dim); text-align: center; padding: 60px 0; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; }
+  .card { cursor: pointer; }
+  .card .art { aspect-ratio: 1; border-radius: 10px; background: #262a36 center/cover no-repeat;
+               display: grid; place-items: center; font-size: 46px; color: #3a4052; margin-bottom: 8px; }
+  .card:hover .art { outline: 2px solid var(--accent); }
+  .card .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .albumhead { display: flex; gap: 20px; align-items: flex-end; margin-bottom: 18px; }
+  .albumhead .art { width: 140px; aspect-ratio: 1; border-radius: 10px; background: #262a36 center/cover no-repeat; }
+  .track { display: flex; gap: 14px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  .track:hover { background: #262a36; }
+  .track.playing { color: var(--accent); }
+  .track .n { width: 26px; color: var(--dim); text-align: right; }
+
+  footer { display: flex; align-items: center; gap: 16px; padding: 14px 24px; }
+  footer .ctl button { font-size: 20px; padding: 4px 10px; }
+  footer .ctl .play { font-size: 26px; }
+  .bar { flex: 1; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 13px; }
+  input[type=range] { accent-color: var(--accent); }
+  .bar input { flex: 1; }
+</style>
+</head>
+<body>
+<div class="tabs">
+  <button class="tab active" id="tab-now">Now Playing</button>
+  <button class="tab" id="tab-lib">Artists</button>
+</div>
+<main id="main"></main>
+<footer>
+  <div class="ctl">
+    <button id="prev" title="Previous">⏮</button>
+    <button id="play" class="play" title="Play / pause">▶</button>
+    <button id="next" title="Next">⏭</button>
+  </div>
+  <div class="bar"><span id="pos">0:00</span><input id="seek" type="range" min="0" max="1000" value="0"><span id="dur">0:00</span></div>
+  <input id="vol" type="range" min="0" max="100" value="80" style="width:90px" title="Volume">
+</footer>
+
+<script>
+(function () {
+  var MV = window.MediaVault;
+  var main = document.getElementById('main');
+  var lib = { artists: [] };
+  var state = null;
+  var tab = 'now';            // theme-local tab: 'now' | 'lib'
+  var seeking = false;
+  var renderedKey = '';
+
+  function fmt(ms) {
+    var s = Math.floor((ms || 0) / 1000), m = Math.floor(s / 60);
+    return m + ':' + String(s % 60).padStart(2, '0');
+  }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function bg(node, url) { if (url) node.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")'; }
+  function findArtist(n) { return lib.artists.find(function (a) { return a.name === n; }); }
+
+  function artistCover(a) {
+    if (a.image) return a.image;
+    for (var i = 0; i < a.albums.length; i++) if (a.albums[i].cover) return a.albums[i].cover;
+    return '';
+  }
+
+  function viewNow() {
+    main.textContent = '';
+    if (!state || state.kind !== 'music') {
+      main.appendChild(el('div', 'empty', 'Pick a song from the library to start listening.'));
+      return;
+    }
+    var wrap = el('div', 'now');
+    var cover = el('div', 'cover', state.cover ? '' : '♪');
+    bg(cover, state.cover);
+    var meta = el('div', 'meta');
+    meta.appendChild(el('div', 'title', state.title));
+    var artist = el('div', 'artist', state.artist);
+    artist.onclick = function () { MV.openArtist(state.artist); };
+    var album = el('div', 'album', state.album);
+    album.onclick = function () { MV.openAlbum(state.artist, state.album); };
+    meta.appendChild(artist); meta.appendChild(album);
+    wrap.appendChild(cover); wrap.appendChild(meta);
+    main.appendChild(wrap);
+  }
+
+  function viewArtists() {
+    main.textContent = '';
+    if (!lib.artists.length) { main.appendChild(el('div', 'empty', 'No music found.')); return; }
+    var grid = el('div', 'grid');
+    lib.artists.forEach(function (a) {
+      var c = el('div', 'card');
+      var art = el('div', 'art', artistCover(a) ? '' : '♪'); bg(art, artistCover(a));
+      c.appendChild(art); c.appendChild(el('div', 'name', a.name));
+      c.onclick = function () { MV.openArtist(a.name); };
+      grid.appendChild(c);
+    });
+    main.appendChild(grid);
+  }
+
+  function viewArtist(name) {
+    main.textContent = '';
+    var back = el('button', 'back', '‹ Artists');
+    back.onclick = function () { tab = 'lib'; MV.showNowPlaying(); setTab('lib'); };
+    main.appendChild(back);
+    main.appendChild(el('h2', null, name));
+    var a = findArtist(name);
+    if (!a) { main.appendChild(el('div', 'empty', 'Artist not found.')); return; }
+    main.appendChild(el('div', 'sub', a.albums.length + (a.albums.length === 1 ? ' album' : ' albums')));
+    var grid = el('div', 'grid');
+    a.albums.forEach(function (al) {
+      var c = el('div', 'card');
+      var art = el('div', 'art', al.cover ? '' : '♪'); bg(art, al.cover);
+      c.appendChild(art); c.appendChild(el('div', 'name', al.name));
+      c.onclick = function () { MV.openAlbum(name, al.name); };
+      grid.appendChild(c);
+    });
+    main.appendChild(grid);
+  }
+
+  function viewAlbum(artistName, albumName) {
+    main.textContent = '';
+    var back = el('button', 'back', '‹ ' + artistName);
+    back.onclick = function () { MV.openArtist(artistName); };
+    main.appendChild(back);
+    var a = findArtist(artistName);
+    var al = a && a.albums.find(function (x) { return x.name === albumName; });
+    if (!al) { main.appendChild(el('div', 'empty', 'Album not found.')); return; }
+    var head = el('div', 'albumhead');
+    var art = el('div', 'art'); bg(art, al.cover);
+    var t = el('div');
+    t.appendChild(el('h2', null, al.name));
+    t.appendChild(el('div', 'sub', artistName + ' · ' + al.tracks.length + ' tracks'));
+    head.appendChild(art); head.appendChild(t);
+    main.appendChild(head);
+    al.tracks.forEach(function (tr, i) {
+      var row = el('div', 'track');
+      row.dataset.path = tr.path;
+      row.appendChild(el('span', 'n', String(i + 1)));
+      row.appendChild(el('span', null, tr.title));
+      row.onclick = function () { MV.playTrack(tr.path); };
+      main.appendChild(row);
+    });
+  }
+
+  function renderView() {
+    if (!state) return;
+    var v = state.view || { type: 'nowplaying' };
+    var key = [v.type, v.artist, v.album, tab, lib.artists.length,
+               state.kind === 'music' ? state.title + state.cover : ''].join('|');
+    if (key === renderedKey) return;
+    renderedKey = key;
+    if (v.type === 'artist') viewArtist(v.artist);
+    else if (v.type === 'album') viewAlbum(v.artist, v.album);
+    else if (tab === 'lib') viewArtists();
+    else viewNow();
+    markPlaying();
+  }
+
+  function markPlaying() {
+    document.querySelectorAll('.track').forEach(function (r) { r.classList.remove('playing'); });
+    if (!state || state.kind !== 'music') return;
+    document.querySelectorAll('.track').forEach(function (r) {
+      var t = r.children[1] && r.children[1].textContent;
+      if (t === state.title) r.classList.add('playing');
+    });
+  }
+
+  function setTab(t) {
+    tab = t;
+    document.getElementById('tab-now').classList.toggle('active', t === 'now');
+    document.getElementById('tab-lib').classList.toggle('active', t === 'lib');
+    renderedKey = '';
+    if (state && state.view && state.view.type !== 'nowplaying') MV.showNowPlaying();
+    else renderView();
+  }
+
+  function renderBar() {
+    if (!state) return;
+    document.getElementById('play').textContent = state.playing ? '⏸' : '▶';
+    document.getElementById('pos').textContent = fmt(state.position);
+    document.getElementById('dur').textContent = fmt(state.duration);
+    if (!seeking) document.getElementById('seek').value = state.duration ? Math.round(1000 * state.position / state.duration) : 0;
+    var v = document.getElementById('vol'); if (document.activeElement !== v) v.value = state.volume;
+  }
+
+  function loadLib() { MV.getLibrary().then(function (l) { lib = l; renderedKey = ''; renderView(); }); }
+
+  document.getElementById('tab-now').onclick = function () { setTab('now'); };
+  document.getElementById('tab-lib').onclick = function () { setTab('lib'); };
+  document.getElementById('play').onclick = function () { MV.togglePlay(); };
+  document.getElementById('prev').onclick = function () { MV.previous(); };
+  document.getElementById('next').onclick = function () { MV.next(); };
+  var seek = document.getElementById('seek');
+  seek.oninput = function () { seeking = true; };
+  seek.onchange = function () { seeking = false; if (state && state.duration) MV.seek(seek.value / 1000 * state.duration); };
+  document.getElementById('vol').oninput = function (e) { MV.setVolume(+e.target.value); };
+
+  MV.on('library', loadLib);
+  MV.on('ready', loadLib);
+  MV.on('state', function (s) { state = s; renderBar(); renderView(); });
+})();
+</script>
+</body>
+</html>

@@ -55,9 +55,17 @@ MediaVault can show what you're watching or listening to on Discord: title, show
 
 The status clears when you stop playback or quit. If Discord isn't running yet, MediaVault retries every 15 seconds.
 
+## Themes
+
+**View → Theme** switches themes. A theme can restyle the whole app (Qt style sheet and fonts) and/or replace the video area with its own web page while you're on **music**. That page gets the current artist, album, track, cover art and playback position, can control playback, and opens when you click an artist or album in the library. Put your own themes in **View → Theme → Open Themes Folder**. A starter theme, **Classic**, is included.
+
+Album covers are read from `cover.jpg` / `folder.jpg` / `front.jpg` (also `.png`, `.webp`) in the album folder, and artist pictures from `artist.jpg` / `folder.jpg` in the artist folder.
+
+How to make one: [docs/THEMES.md](docs/THEMES.md). Web themes need a build with Qt WebEngine (the CI builds include it).
+
 ## Building
 
-Requires CMake 3.21+, a C++17 compiler and Qt 6.5+ with the Multimedia module.
+Requires CMake 3.21+, a C++17 compiler and Qt 6.5+ with the Multimedia module. Web themes also need the WebEngine and WebChannel modules; without them the app still builds (`-DMEDIAVAULT_WEBENGINE=OFF` to skip them on purpose) and just applies a theme's style sheet.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

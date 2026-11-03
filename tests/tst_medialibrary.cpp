@@ -53,6 +53,8 @@ private slots:
         touch(r + "/Music/Pink Floyd/The Wall/02 - Another Brick.flac");
         touch(r + "/Music/Pink Floyd/The Wall/01 - In The Flesh.flac");
         touch(r + "/Music/Loose Track.mp3");
+        touch(r + "/Music/Pink Floyd/The Wall/Cover.JPG");
+        touch(r + "/Music/Pink Floyd/artist.png");
 
         const mv::Library lib = mv::scanLibrary(r);
         QVERIFY2(lib.warnings.isEmpty(), qPrintable(lib.warnings.join(", ")));
@@ -72,6 +74,8 @@ private slots:
         QCOMPARE(pf.albums.size(), 1);
         QCOMPARE(pf.albums[0].tracks.size(), 2);
         QCOMPARE(pf.albums[0].tracks[0].title, QString("In The Flesh"));
+        QVERIFY(pf.albums[0].coverPath.endsWith("Cover.JPG"));
+        QVERIFY(pf.imagePath.endsWith("artist.png"));
     }
 
     void missingFoldersWarn()
