@@ -28,6 +28,12 @@ public slots:   // --- called from JavaScript ---------------------------------
     void seek(qint64 ms) { emit seekRequested(ms); }
     void setVolume(int percent) { emit volumeRequested(percent); }
     void playTrack(const QString &path) { emit playTrackRequested(path); }
+    void playMedia(const QString &path) { emit playTrackRequested(path); }   // any song, movie or episode
+    void stop() { emit stopRequested(); }
+    void openFolder() { emit openFolderRequested(); }
+    void rescan() { emit rescanRequested(); }
+    void showVideo() { emit showVideoRequested(); }
+    void showLibrary() { emit showLibraryRequested(); }
     void openArtist(const QString &artist) { emit openArtistRequested(artist); }
     void openAlbum(const QString &artist, const QString &album) { emit openAlbumRequested(artist, album); }
     void showNowPlaying() { emit showNowPlayingRequested(); }
@@ -47,6 +53,11 @@ signals:
     void seekRequested(qint64 ms);
     void volumeRequested(int percent);
     void playTrackRequested(const QString &path);
+    void stopRequested();
+    void openFolderRequested();
+    void rescanRequested();
+    void showVideoRequested();
+    void showLibraryRequested();
     void openArtistRequested(const QString &artist);
     void openAlbumRequested(const QString &artist, const QString &album);
     void showNowPlayingRequested();
@@ -54,5 +65,5 @@ signals:
 
 private:
     QString m_stateJson = QStringLiteral("{}");
-    QString m_libraryJson = QStringLiteral("{\"artists\":[]}");
+    QString m_libraryJson = QStringLiteral("{\"root\":\"\",\"movies\":[],\"shows\":[],\"artists\":[]}");
 };

@@ -63,6 +63,13 @@ bool loadThemeInfo(const QString &dir, ThemeInfo &out, QString *error)
     t.version = o.value("version").toString();
     t.description = o.value("description").toString();
 
+    const QString layout = o.value("layout").toString().trimmed().toLower();
+    if (!layout.isEmpty()) {
+        if (layout != QLatin1String("full") && layout != QLatin1String("panel"))
+            return fail(error, QStringLiteral("layout must be \"full\" or \"panel\""));
+        t.layout = layout;
+    }
+
     // "entry" defaults to index.html when that file exists.
     QString entry = o.value("entry").toString();
     if (entry.isEmpty() && QFileInfo::exists(d.absoluteFilePath(QStringLiteral("index.html"))))
@@ -142,17 +149,55 @@ QJsonObject snapshotToJson(const PlaybackSnapshot &s)
     o["title"] = s.title;
     o["artist"] = s.artist;
     o["album"] = s.album;
+    o["show"] = s.show;
+    o["season"] = s.season;
+    o["episode"] = s.episode;
+    o["path"] = s.path;
     o["cover"] = s.cover;
     o["playing"] = s.playing;
     o["position"] = static_cast<double>(s.positionMs);
     o["duration"] = static_cast<double>(s.durationMs);
     o["volume"] = s.volume;
+    o["page"] = s.page;
+    o["root"] = s.root;
     o["view"] = view;
     return o;
 }
 
-QJsonObject musicLibraryToJson(const Library &lib)
+QJsonObject libraryToJson(const Library &lib)
 {
+    QJsonArray movies;
+    for (const MediaItem &m : lib.movies) {
+        QJsonObject mo;
+        mo["title"] = m.title;
+        mo["path"] = m.path;
+        movies.append(mo);
+    }
+
+    QJsonArray shows;
+    for (const Show &sh : lib.shows) {
+        QJsonArray seasons;
+        for (const Season &se : sh.seasons) {
+            QJsonArray episodes;
+            for (const MediaItem &ep : se.episodes) {
+                QJsonObject eo;
+                eo["title"] = ep.title;
+                eo["season"] = ep.season;
+                eo["episode"] = ep.episode;
+                eo["path"] = ep.path;
+                episodes.append(eo);
+            }
+            QJsonObject so;
+            so["number"] = se.number;
+            so["episodes"] = episodes;
+            seasons.append(so);
+        }
+        QJsonObject sho;
+        sho["name"] = sh.name;
+        sho["seasons"] = seasons;
+        shows.append(sho);
+    }
+
     QJsonArray artists;
     for (const Artist &a : lib.artists) {
         QJsonArray albums;
@@ -177,6 +222,9 @@ QJsonObject musicLibraryToJson(const Library &lib)
         artists.append(ao);
     }
     QJsonObject o;
+    o["root"] = lib.root;
+    o["movies"] = movies;
+    o["shows"] = shows;
     o["artists"] = artists;
     return o;
 }

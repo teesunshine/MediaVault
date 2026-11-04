@@ -44,6 +44,10 @@
 namespace {
 constexpr int kPathRole = Qt::UserRole;
 constexpr int kCoverRole = Qt::UserRole + 1;   // album cover file (music leaves and albums)
+constexpr int kTitleRole = Qt::UserRole + 2;   // clean episode title (TV leaves)
+constexpr int kSeasonRole = Qt::UserRole + 3;
+constexpr int kEpisodeRole = Qt::UserRole + 4;
+constexpr const char *kLegacyId = "legacy";
 constexpr const char *kThemeSetting = "ui/theme";
 constexpr const char *kRootKey = "library/root";
 constexpr const char *kDiscordEnabledKey = "discord/enabled";
@@ -116,6 +120,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_controlsBar = new QWidget;
     auto *controls = new QHBoxLayout(m_controlsBar);
     controls->setContentsMargins(0, 0, 0, 0);
+    m_backBtn = new QPushButton(tr("◀ Library"));
+    m_backBtn->setFlat(true);
+    m_backBtn->setVisible(false);   // only in the full-UI layout
+    controls->addWidget(m_backBtn);
     controls->addWidget(prevBtn);
     controls->addWidget(m_playBtn);
     controls->addWidget(stopBtn);
@@ -125,8 +133,8 @@ MainWindow::MainWindow(QWidget *parent)
     controls->addWidget(m_volume);
     controls->addWidget(fullBtn);
 
-    auto *right = new QWidget;
-    auto *rightLayout = new QVBoxLayout(right);
+    m_right = new QWidget;
+    auto *rightLayout = new QVBoxLayout(m_right);
     rightLayout->setContentsMargins(0, 6, 6, 6);
     m_stage = new QStackedWidget;
     m_stage->addWidget(m_video);   // the theme panel is added when a web theme is first used
@@ -134,13 +142,21 @@ MainWindow::MainWindow(QWidget *parent)
     rightLayout->addWidget(m_nowPlaying);
     rightLayout->addWidget(m_controlsBar);
 
-    auto *splitter = new QSplitter;
-    splitter->addWidget(m_left);
-    splitter->addWidget(right);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-    splitter->setSizes({340, 860});
-    setCentralWidget(splitter);
+    // Two layouts share the same player widgets:
+    //  - Legacy: library list on the left, player on the right.
+    //  - Full UI: a theme's web page is the whole window; video plays on a native
+    //    screen (m_right) that the page switches to and a "Library" button leaves.
+    m_splitter = new QSplitter;
+    m_splitter->addWidget(m_left);
+    m_splitter->addWidget(m_right);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
+    m_splitter->setSizes({340, 860});
+    m_fullStack = new QStackedWidget;
+    m_shell = new QStackedWidget;
+    m_shell->addWidget(m_splitter);
+    m_shell->addWidget(m_fullStack);
+    setCentralWidget(m_shell);
 
     // --- Playback engine -----------------------------------------------
     m_player = new QMediaPlayer(this);
@@ -197,6 +213,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(nextBtn, &QPushButton::clicked, this, &MainWindow::playNext);
     connect(prevBtn, &QPushButton::clicked, this, &MainWindow::playPrevious);
     connect(fullBtn, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
+    connect(m_backBtn, &QPushButton::clicked, this, &MainWindow::showLibraryPage);
 
     connect(m_volume, &QSlider::valueChanged, this, [this](int v) {
         m_audio->setVolume(v / 100.0f);
@@ -278,7 +295,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_themePushTimer.start();
     reloadThemes();
-    applyTheme(QSettings().value(kThemeSetting).toString());
+    // Classic (the full web UI) is the default; "legacy" is the original layout.
+    applyTheme(QSettings().value(kThemeSetting, QStringLiteral("classic")).toString());
 }
 
 void MainWindow::openSavedLibrary()
@@ -323,6 +341,7 @@ void MainWindow::openLibrary(const QString &root)
     if (!m_library.warnings.isEmpty())
         msg += QStringLiteral("  |  ") + m_library.warnings.join(QStringLiteral("; "));
     statusBar()->showMessage(msg);
+    pushThemeState();   // themes show the new folder (and an empty "now playing")
 }
 
 void MainWindow::populate()
@@ -339,8 +358,12 @@ void MainWindow::populate()
         for (const auto &season : show.seasons) {
             const QString label = season.number > 0 ? tr("Season %1").arg(season.number) : tr("Episodes");
             auto *seasonItem = new QTreeWidgetItem(showItem, QStringList(label));
-            for (const auto &ep : season.episodes)
-                makeLeaf(seasonItem, episodeLabel(ep), ep.path);
+            for (const auto &ep : season.episodes) {
+                QTreeWidgetItem *leaf = makeLeaf(seasonItem, episodeLabel(ep), ep.path);
+                leaf->setData(0, kTitleRole, ep.title);
+                leaf->setData(0, kSeasonRole, ep.season);
+                leaf->setData(0, kEpisodeRole, ep.episode);
+            }
         }
     }
 
@@ -423,6 +446,13 @@ void MainWindow::playPath(const QString &path)
         if (leaf->data(0, kPathRole).toString() == path) {
             m_tree->setCurrentItem(leaf);
             playItem(leaf);
+            // Full UI: video plays on the native screen, music stays in the theme.
+            if (m_layoutMode == LayoutMode::Full) {
+                if (categoryOf(leaf) == 2)
+                    showLibraryPage();
+                else
+                    showVideoPage();
+            }
             return;
         }
     }
@@ -585,20 +615,18 @@ void MainWindow::reloadThemes()
 void MainWindow::rebuildThemeMenu()
 {
     m_themeMenu->clear();
-    const QString current = m_hasTheme ? m_activeTheme.id : QString();
 
     auto addChoice = [&](const QString &text, const QString &id, const QString &tip) {
         QAction *a = m_themeMenu->addAction(text);
         a->setCheckable(true);
         a->setData(id);
         a->setToolTip(tip);
-        a->setChecked(id == current);
+        a->setChecked(id == m_themeId);
         m_themeGroup->addAction(a);
         connect(a, &QAction::triggered, this, [this, id] { applyTheme(id); });
     };
 
-    addChoice(tr("Default"), QString(), tr("The plain MediaVault look"));
-    for (const mv::ThemeInfo &t : m_themes) {
+    for (const mv::ThemeInfo &t : std::as_const(m_themes)) {
         QString label = t.name;
         if (!t.author.isEmpty())
             label += tr("  (%1)").arg(t.author);
@@ -606,14 +634,17 @@ void MainWindow::rebuildThemeMenu()
     }
 
     m_themeMenu->addSeparator();
+    addChoice(tr("Legacy (media browser on the left)"), QString::fromLatin1(kLegacyId),
+              tr("The original layout: library list beside the player"));
+
+    m_themeMenu->addSeparator();
     m_themeMenu->addAction(tr("Open Themes Folder"), this, [this] {
         QDir().mkpath(userThemesDir());
         QDesktopServices::openUrl(QUrl::fromLocalFile(userThemesDir()));
     });
     m_themeMenu->addAction(tr("Reload Themes"), this, [this] {
-        const QString id = m_hasTheme ? m_activeTheme.id : QString();
         reloadThemes();
-        applyTheme(id);
+        applyTheme(m_themeId);
     });
 }
 
@@ -621,8 +652,7 @@ void MainWindow::ensureThemePanel()
 {
     if (m_themePanel)
         return;
-    m_themePanel = new ThemePanel;
-    m_stage->addWidget(m_themePanel);
+    m_themePanel = new ThemePanel;   // placed by setLayoutMode()
 
     ThemeBridge *b = m_themePanel->bridge();
     connect(b, &ThemeBridge::togglePlayRequested, this, &MainWindow::togglePlay);
@@ -634,6 +664,7 @@ void MainWindow::ensureThemePanel()
         if (m_player->playbackState() == QMediaPlayer::PlayingState)
             m_player->pause();
     });
+    connect(b, &ThemeBridge::stopRequested, m_player, &QMediaPlayer::stop);
     connect(b, &ThemeBridge::nextRequested, this, &MainWindow::playNext);
     connect(b, &ThemeBridge::previousRequested, this, &MainWindow::playPrevious);
     connect(b, &ThemeBridge::seekRequested, this, [this](qint64 ms) { seekTo(ms); });
@@ -647,25 +678,47 @@ void MainWindow::ensureThemePanel()
     connect(b, &ThemeBridge::showNowPlayingRequested, this,
             [this] { showMusicView(QStringLiteral("nowplaying"), QString(), QString()); });
     connect(b, &ThemeBridge::toggleFullscreenRequested, this, &MainWindow::toggleFullscreen);
+    connect(b, &ThemeBridge::openFolderRequested, this, &MainWindow::chooseFolder);
+    connect(b, &ThemeBridge::rescanRequested, this, &MainWindow::rescan);
+    connect(b, &ThemeBridge::showVideoRequested, this, &MainWindow::showVideoPage);
+    connect(b, &ThemeBridge::showLibraryRequested, this, &MainWindow::showLibraryPage);
 
     b->setLibrary(libraryJson());
 }
 
-void MainWindow::applyTheme(const QString &id)
+void MainWindow::applyTheme(const QString &requested)
 {
-    // Start from the plain look, then layer the chosen theme on top.
+    // Classic is the default; an unknown or removed theme falls back to it,
+    // and to the legacy layout if even that is missing.
+    QString id = requested.trimmed().isEmpty() ? QStringLiteral("classic") : requested.trimmed();
+
     qApp->setStyleSheet(QString());
     m_hasTheme = false;
     m_activeTheme = mv::ThemeInfo();
+    m_legacy = false;
 
-    for (const mv::ThemeInfo &t : std::as_const(m_themes)) {
-        if (t.id == id) {
-            m_activeTheme = t;
-            m_hasTheme = true;
-            break;
-        }
+    auto findTheme = [this](const QString &wanted) -> const mv::ThemeInfo * {
+        for (const mv::ThemeInfo &t : std::as_const(m_themes))
+            if (t.id == wanted)
+                return &t;
+        return nullptr;
+    };
+
+    if (id == QLatin1String(kLegacyId)) {
+        m_legacy = true;
+    } else if (const mv::ThemeInfo *t = findTheme(id)) {
+        m_activeTheme = *t;
+        m_hasTheme = true;
+    } else if (const mv::ThemeInfo *c = findTheme(QStringLiteral("classic"))) {
+        id = QStringLiteral("classic");
+        m_activeTheme = *c;
+        m_hasTheme = true;
+    } else {
+        id = QString::fromLatin1(kLegacyId);
+        m_legacy = true;
     }
 
+    LayoutMode mode = LayoutMode::Legacy;
     if (m_hasTheme) {
         for (const QString &font : std::as_const(m_activeTheme.fontPaths)) {
             if (!m_registeredFonts.contains(font)) {
@@ -679,32 +732,79 @@ void MainWindow::applyTheme(const QString &id)
             if (ThemePanel::isAvailable()) {
                 ensureThemePanel();
                 m_themePanel->loadTheme(m_activeTheme);
+                if (m_activeTheme.isFullUi())
+                    mode = LayoutMode::Full;
             } else {
                 statusBar()->showMessage(
-                    tr("This build has no web themes; only the theme's style sheet is applied."), 8000);
+                    tr("This build has no web themes, so the legacy layout is used."), 8000);
             }
         }
     }
 
-    QSettings().setValue(kThemeSetting, m_hasTheme ? m_activeTheme.id : QString());
+    m_themeId = id;
+    QSettings().setValue(kThemeSetting, id);
     for (QAction *a : m_themeGroup->actions())
-        a->setChecked(a->data().toString() == (m_hasTheme ? m_activeTheme.id : QString()));
+        a->setChecked(a->data().toString() == id);
 
+    setLayoutMode(mode);
+    pushThemeState();
+}
+
+void MainWindow::setLayoutMode(LayoutMode mode)
+{
+    m_layoutMode = mode;
+    const bool full = mode == LayoutMode::Full;
+    m_backBtn->setVisible(full);
+
+    if (full) {
+        m_fullStack->addWidget(m_themePanel);   // page 0: the theme's web UI
+        m_fullStack->addWidget(m_right);        // page 1: native video screen
+        m_shell->setCurrentWidget(m_fullStack);
+        if (m_current && categoryOf(m_current) != 2
+            && m_player->playbackState() != QMediaPlayer::StoppedState)
+            showVideoPage();
+        else
+            showLibraryPage();
+    } else {
+        m_splitter->addWidget(m_right);
+        m_splitter->setSizes({340, 860});
+        m_right->show();
+        if (m_themePanel && m_hasTheme && m_activeTheme.isPanel())
+            m_stage->addWidget(m_themePanel);   // legacy layout with a music panel
+        m_shell->setCurrentWidget(m_splitter);
+    }
     updateStage();
+}
+
+void MainWindow::showVideoPage()
+{
+    if (m_layoutMode != LayoutMode::Full)
+        return;
+    m_fullStack->setCurrentWidget(m_right);
+    pushThemeState();
+}
+
+void MainWindow::showLibraryPage()
+{
+    if (m_layoutMode != LayoutMode::Full || !m_themePanel)
+        return;
+    m_fullStack->setCurrentWidget(m_themePanel);
     pushThemeState();
 }
 
 void MainWindow::updateStage()
 {
-    const bool web = m_themePanel && m_hasTheme && m_activeTheme.hasEntry();
-    const bool showPanel = web && m_musicStage;
+    // Only the legacy layout swaps video for a theme's music panel.
+    const bool panelInStage = m_layoutMode == LayoutMode::Legacy && m_themePanel && m_hasTheme
+                              && m_activeTheme.isPanel() && m_stage->indexOf(m_themePanel) >= 0;
+    const bool showPanel = panelInStage && m_musicStage;
     m_stage->setCurrentWidget(showPanel ? static_cast<QWidget *>(m_themePanel)
                                         : static_cast<QWidget *>(m_video));
 }
 
 QString MainWindow::libraryJson() const
 {
-    return QString::fromUtf8(QJsonDocument(mv::musicLibraryToJson(m_library)).toJson(QJsonDocument::Compact));
+    return QString::fromUtf8(QJsonDocument(mv::libraryToJson(m_library)).toJson(QJsonDocument::Compact));
 }
 
 void MainWindow::pushThemeState()
@@ -713,12 +813,15 @@ void MainWindow::pushThemeState()
         return;
 
     mv::PlaybackSnapshot s;
+    s.root = m_library.root;
     if (m_current) {
         QStringList crumbs;
         for (QTreeWidgetItem *p = m_current; p && p->parent(); p = p->parent())
             crumbs.prepend(p->text(0));
+        const int category = categoryOf(m_current);
+        s.path = m_current->data(0, kPathRole).toString();
 
-        if (categoryOf(m_current) == 2 && crumbs.size() >= 3) {
+        if (category == 2 && crumbs.size() >= 3) {
             s.kind = QStringLiteral("music");
             s.artist = crumbs.at(0);
             s.album = crumbs.at(1);
@@ -726,13 +829,21 @@ void MainWindow::pushThemeState()
             s.cover = mv::fileUrl(m_current->data(0, kCoverRole).toString());
         } else {
             s.kind = QStringLiteral("video");
-            s.title = crumbs.isEmpty() ? m_current->text(0) : crumbs.last();
+            const QString clean = m_current->data(0, kTitleRole).toString();
+            s.title = !clean.isEmpty() ? clean : (crumbs.isEmpty() ? m_current->text(0) : crumbs.last());
+            if (category == 1) {
+                s.show = crumbs.value(0);
+                s.season = m_current->data(0, kSeasonRole).toInt();
+                s.episode = m_current->data(0, kEpisodeRole).toInt();
+            }
         }
     }
     s.playing = m_player->playbackState() == QMediaPlayer::PlayingState;
     s.positionMs = m_player->position();
     s.durationMs = m_player->duration();
     s.volume = m_volume->value();
+    s.page = (m_layoutMode == LayoutMode::Full && m_fullStack->currentWidget() == m_right)
+                 ? QStringLiteral("video") : QStringLiteral("ui");
     s.viewType = m_viewType;
     s.viewArtist = m_viewArtist;
     s.viewAlbum = m_viewAlbum;

@@ -12,6 +12,7 @@
 class QAction;
 class QActionGroup;
 class QMenu;
+class QSplitter;
 class QStackedWidget;
 class ThemePanel;
 namespace mv { class ArtworkResolver; class DiscordPresence; }
@@ -55,6 +56,8 @@ private slots:
     void onItemClicked(QTreeWidgetItem *item, int column);
 
 private:
+    enum class LayoutMode { Legacy, Full };
+
     // Tells Discord what is playing. Pass a position when the player hasn't
     // caught up yet (e.g. right after a seek); -1 reads it from the player.
     void updatePresence(qint64 positionOverrideMs = -1);
@@ -74,6 +77,9 @@ private:
     int categoryOf(QTreeWidgetItem *item) const;   // 0 movies, 1 TV, 2 music, -1 none
     void playPath(const QString &path);
     QString libraryJson() const;
+    void setLayoutMode(LayoutMode mode);   // Legacy: library list + player. Full: the theme is the whole window.
+    void showVideoPage();                  // full UI: native video screen
+    void showLibraryPage();                // full UI: the theme's web page
     void setFullscreenMode(bool on);
     void showControls();
     void populate();
@@ -109,7 +115,15 @@ private:
     QString m_artKey;               // lookup key of the picture for the current item
     QAction *m_discordToggle = nullptr;
 
-    QStackedWidget *m_stage = nullptr;      // [video | theme panel]
+    QStackedWidget *m_stage = nullptr;      // [video | theme panel] (legacy layout)
+    QStackedWidget *m_shell = nullptr;      // [legacy splitter | full-UI stack]
+    QStackedWidget *m_fullStack = nullptr;  // full UI: [theme web page | native video screen]
+    QSplitter *m_splitter = nullptr;
+    QWidget *m_right = nullptr;             // video + controls; moves between the two layouts
+    QPushButton *m_backBtn = nullptr;       // "Library" button on the video screen (full UI)
+    LayoutMode m_layoutMode = LayoutMode::Legacy;
+    QString m_themeId;                      // what the user picked: "legacy" or a theme id
+    bool m_legacy = false;
     ThemePanel *m_themePanel = nullptr;     // created when the first web theme is applied
     QMenu *m_themeMenu = nullptr;
     QActionGroup *m_themeGroup = nullptr;

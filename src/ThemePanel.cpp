@@ -41,12 +41,14 @@ const char kBootstrap[] = R"JS(
   function connect() {
     new QWebChannel(qt.webChannelTransport, function (channel) {
       var b = channel.objects.bridge;
-      ['play', 'pause', 'togglePlay', 'next', 'previous', 'showNowPlaying', 'toggleFullscreen'].forEach(function (n) {
+      ['play', 'pause', 'togglePlay', 'stop', 'next', 'previous', 'showNowPlaying', 'toggleFullscreen',
+       'openFolder', 'rescan', 'showVideo', 'showLibrary'].forEach(function (n) {
         mv[n] = function () { b[n](); };
       });
       mv.seek = function (ms) { b.seek(Math.round(ms)); };
       mv.setVolume = function (p) { b.setVolume(Math.round(Math.max(0, Math.min(100, p)))); };
-      mv.playTrack = function (path) { b.playTrack(path); };
+      mv.playTrack = function (path) { b.playMedia(path); };
+      mv.playMedia = function (path) { b.playMedia(path); };
       mv.openArtist = function (a) { b.openArtist(a); };
       mv.openAlbum = function (a, al) { b.openAlbum(a, al); };
       mv.getLibrary = function () {

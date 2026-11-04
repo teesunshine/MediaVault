@@ -22,10 +22,10 @@ Folder names are matched case-insensitively. `TV`, `TVShows` and `Series` also w
 
 ## Using it
 
-- **File → Open Media Folder…** (Ctrl/Cmd+O) and pick the folder that *contains* Music, Movies and TV Shows. The choice is remembered.
+- **File → Open Media Folder…** (Ctrl/Cmd+O), or the **⋯** menu in Classic, and pick the folder that *contains* Music, Movies and TV Shows. The choice is remembered.
 - Or from a terminal: `MediaVault /path/to/Media`
-- Double-click or press Enter on an item to play. Playback moves on to the next item automatically.
-- Type in the filter box to narrow the tree.
+- Click an item to play it (double-click in the Legacy layout). Playback moves on to the next item automatically.
+- Type in the search box to narrow what you see.
 - Keys: **Space** play/pause, **←/→** seek 10s, **F11** or double-click the video for fullscreen (**Esc** exits; controls hide after 3s and return when you move the mouse), **Ctrl/Cmd+R** rescan.
 
 ### How files are recognised
@@ -55,13 +55,15 @@ MediaVault can show what you're watching or listening to on Discord: title, show
 
 The status clears when you stop playback or quit. If Discord isn't running yet, MediaVault retries every 15 seconds.
 
-## Themes
+## Themes and layouts
 
-**View → Theme** switches themes. A theme can restyle the whole app (Qt style sheet and fonts) and/or replace the video area with its own web page while you're on **music**. That page gets the current artist, album, track, cover art and playback position, can control playback, and opens when you click an artist or album in the library. Put your own themes in **View → Theme → Open Themes Folder**. A starter theme, **Classic**, is included.
+MediaVault's window is a theme. The default, **Classic**, is a web UI that fills the whole window: Music, Movies and TV Shows tabs, search, and a player bar. Songs play inside it; movies and episodes play on a native video screen with a **Library** button to get back.
+
+**View → Theme** switches themes. The last entry, **Legacy (media browser on the left)**, is the original layout: library list beside the player. A theme can also be just a Qt style sheet and fonts, or a music-only panel for the Legacy layout. Put your own in **View → Theme → Open Themes Folder**.
 
 Album covers are read from `cover.jpg` / `folder.jpg` / `front.jpg` (also `.png`, `.webp`) in the album folder, and artist pictures from `artist.jpg` / `folder.jpg` in the artist folder.
 
-How to make one: [docs/THEMES.md](docs/THEMES.md). Web themes need a build with Qt WebEngine (the CI builds include it).
+How to make a theme: [docs/THEMES.md](docs/THEMES.md). Web themes need a build with Qt WebEngine (the CI builds include it); without it MediaVault falls back to the Legacy layout.
 
 ## Building
 

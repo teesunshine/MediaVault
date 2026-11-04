@@ -3,233 +3,423 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Classic</title>
+<title>MediaVault</title>
 <style>
-  :root { --bg:#12141a; --panel:#1b1e27; --text:#e8eaf0; --dim:#8b92a6; --accent:#5aa9ff; }
+  :root { --bg:#101218; --panel:#181b24; --panel2:#20242f; --text:#e8eaf0; --dim:#8b92a6; --accent:#5aa9ff; --line:#262b38; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, "Segoe UI", sans-serif;
-         display: flex; flex-direction: column; overflow: hidden; }
+         display: flex; flex-direction: column; overflow: hidden; user-select: none; }
   button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
-  .tabs { display: flex; gap: 4px; padding: 14px 20px 0; }
-  .tab { padding: 8px 16px; border-radius: 8px 8px 0 0; color: var(--dim); }
-  .tab.active { background: var(--panel); color: var(--text); }
-  main { flex: 1; overflow: auto; background: var(--panel); margin: 0 20px; border-radius: 0 12px 0 0; padding: 24px; }
-  h2 { font-size: 22px; margin-bottom: 4px; }
+  input { font: inherit; }
+
+  /* ---- top bar ---- */
+  .top { display: flex; align-items: center; gap: 18px; padding: 12px 22px; border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 700; font-size: 18px; letter-spacing: .3px; }
+  .brand span { color: var(--accent); }
+  .tabs { display: flex; gap: 4px; }
+  .tab { padding: 7px 16px; border-radius: 999px; color: var(--dim); }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--panel2); color: var(--text); }
+  .grow { flex: 1; }
+  #search { width: 220px; max-width: 28vw; background: var(--panel); border: 1px solid var(--line); color: var(--text);
+            border-radius: 999px; padding: 7px 14px; outline: none; user-select: text; }
+  #search:focus { border-color: var(--accent); }
+  .menu { position: relative; }
+  #menuBtn { font-size: 22px; line-height: 1; padding: 4px 10px; border-radius: 8px; color: var(--dim); }
+  #menuBtn:hover { background: var(--panel2); color: var(--text); }
+  #menuPop { position: absolute; right: 0; top: 38px; z-index: 30; min-width: 220px; background: var(--panel2);
+             border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 10px 30px #0008; }
+  #menuPop[hidden] { display: none; }
+  #menuPop button { display: block; width: 100%; text-align: left; padding: 9px 12px; border-radius: 7px; }
+  #menuPop button:hover { background: #2b3040; }
+
+  /* ---- content ---- */
+  main { flex: 1; overflow: auto; padding: 24px 28px; }
+  h2 { font-size: 24px; margin-bottom: 2px; }
   .sub { color: var(--dim); margin-bottom: 18px; }
   .back { color: var(--accent); margin-bottom: 14px; display: inline-block; }
+  .back:hover { text-decoration: underline; }
+  .empty { max-width: 460px; margin: 12vh auto 0; text-align: center; color: var(--dim); }
+  .empty h2 { color: var(--text); margin-bottom: 8px; }
+  .empty button { margin-top: 18px; background: var(--accent); color: #07121f; font-weight: 600; padding: 10px 20px; border-radius: 999px; }
+  .none { color: var(--dim); padding: 40px 0; text-align: center; }
 
-  .now { display: flex; gap: 28px; align-items: center; justify-content: center; min-height: 100%; flex-wrap: wrap; }
-  .now .cover { width: min(320px, 60vw); aspect-ratio: 1; border-radius: 12px; background: #262a36 center/cover no-repeat;
-                display: grid; place-items: center; font-size: 80px; color: #3a4052; }
-  .now .meta { max-width: 360px; }
-  .now .title { font-size: 28px; font-weight: 700; }
-  .now .artist, .now .album { color: var(--dim); font-size: 17px; }
-  .now .artist:hover, .now .album:hover { color: var(--accent); cursor: pointer; }
-  .empty { color: var(--dim); text-align: center; padding: 60px 0; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px; }
-  .card { cursor: pointer; }
-  .card .art { aspect-ratio: 1; border-radius: 10px; background: #262a36 center/cover no-repeat;
-               display: grid; place-items: center; font-size: 46px; color: #3a4052; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 22px 18px; }
+  .card { cursor: pointer; min-width: 0; }
+  .art { aspect-ratio: 1; border-radius: 10px; background: #262a36 center/cover no-repeat; display: grid; place-items: center;
+         font-size: 44px; font-weight: 700; color: #ffffff55; margin-bottom: 8px; overflow: hidden; }
+  .art.poster { aspect-ratio: 2/3; }
   .card:hover .art { outline: 2px solid var(--accent); }
   .card .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .meta { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  .albumhead { display: flex; gap: 20px; align-items: flex-end; margin-bottom: 18px; }
-  .albumhead .art { width: 140px; aspect-ratio: 1; border-radius: 10px; background: #262a36 center/cover no-repeat; }
-  .track { display: flex; gap: 14px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-  .track:hover { background: #262a36; }
-  .track.playing { color: var(--accent); }
-  .track .n { width: 26px; color: var(--dim); text-align: right; }
+  .head { display: flex; gap: 22px; align-items: flex-end; margin-bottom: 18px; }
+  .head .art { width: 150px; margin: 0; flex: none; }
+  .row { display: flex; gap: 14px; padding: 9px 12px; border-radius: 8px; cursor: pointer; align-items: baseline; }
+  .row:hover { background: var(--panel2); }
+  .row .n { width: 54px; color: var(--dim); text-align: right; flex: none; }
+  .row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.playing { color: var(--accent); }
+  .season { margin: 22px 0 6px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
 
-  footer { display: flex; align-items: center; gap: 16px; padding: 14px 24px; }
-  footer .ctl button { font-size: 20px; padding: 4px 10px; }
-  footer .ctl .play { font-size: 26px; }
-  .bar { flex: 1; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 13px; }
+  /* ---- now playing overlay (music) ---- */
+  #now { position: fixed; inset: 0 0 76px 0; z-index: 20; background: var(--bg); display: none; align-items: center;
+         justify-content: center; gap: 36px; flex-wrap: wrap; padding: 24px; }
+  #now.open { display: flex; }
+  #now .cover { width: min(380px, 60vw); aspect-ratio: 1; border-radius: 14px; background: #262a36 center/cover no-repeat;
+                display: grid; place-items: center; font-size: 90px; color: #ffffff33; }
+  #now .meta { max-width: 380px; }
+  #now .title { font-size: 30px; font-weight: 700; }
+  #now .line { color: var(--dim); font-size: 17px; }
+  #now .line.link:hover { color: var(--accent); cursor: pointer; }
+  #now .close { position: absolute; top: 14px; right: 22px; font-size: 26px; color: var(--dim); }
+
+  /* ---- player bar ---- */
+  footer { display: flex; align-items: center; gap: 18px; padding: 12px 22px; border-top: 1px solid var(--line); background: var(--panel); height: 76px; z-index: 25; }
+  .nowinfo { display: flex; align-items: center; gap: 12px; width: 280px; min-width: 0; cursor: pointer; }
+  .thumb { width: 50px; height: 50px; border-radius: 8px; background: #262a36 center/cover no-repeat; display: grid; place-items: center;
+           color: #ffffff44; font-weight: 700; flex: none; }
+  .nowtext { min-width: 0; }
+  .nowtext .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nowtext .s { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctl { display: flex; align-items: center; }
+  .ctl button { font-size: 20px; padding: 4px 10px; border-radius: 8px; }
+  .ctl button:hover { background: var(--panel2); }
+  .ctl .play { font-size: 26px; }
+  .bar { flex: 1; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 13px; min-width: 0; }
+  .bar input { flex: 1; min-width: 0; }
   input[type=range] { accent-color: var(--accent); }
-  .bar input { flex: 1; }
+  #vol { width: 90px; }
+  #toVideo { background: var(--accent); color: #07121f; font-weight: 600; padding: 7px 14px; border-radius: 999px; white-space: nowrap; }
+  #toVideo[hidden] { display: none; }
+  @media (max-width: 760px) { .nowinfo { width: 150px; } #vol { display: none; } .tabs .tab { padding: 7px 10px; } }
 </style>
 </head>
 <body>
-<div class="tabs">
-  <button class="tab active" id="tab-now">Now Playing</button>
-  <button class="tab" id="tab-lib">Artists</button>
+<div class="top">
+  <div class="brand">Media<span>Vault</span></div>
+  <nav class="tabs">
+    <button class="tab" data-tab="music">Music</button>
+    <button class="tab" data-tab="movies">Movies</button>
+    <button class="tab" data-tab="tv">TV Shows</button>
+  </nav>
+  <div class="grow"></div>
+  <input id="search" type="search" placeholder="Search" autocomplete="off">
+  <div class="menu">
+    <button id="menuBtn" title="Menu">⋯</button>
+    <div id="menuPop" hidden>
+      <button id="mOpen">Open media folder…</button>
+      <button id="mRescan">Rescan library</button>
+      <button id="mFull">Fullscreen</button>
+    </div>
+  </div>
 </div>
+
 <main id="main"></main>
+
+<div id="now">
+  <button class="close" id="nowClose" title="Close">✕</button>
+  <div class="cover" id="nowCover"></div>
+  <div class="meta">
+    <div class="title" id="nowTitle"></div>
+    <div class="line link" id="nowArtist"></div>
+    <div class="line link" id="nowAlbum"></div>
+  </div>
+</div>
+
 <footer>
+  <div class="nowinfo" id="nowInfo">
+    <div class="thumb" id="thumb">♪</div>
+    <div class="nowtext"><div class="t" id="barTitle">Nothing playing</div><div class="s" id="barSub"></div></div>
+  </div>
   <div class="ctl">
     <button id="prev" title="Previous">⏮</button>
     <button id="play" class="play" title="Play / pause">▶</button>
     <button id="next" title="Next">⏭</button>
   </div>
   <div class="bar"><span id="pos">0:00</span><input id="seek" type="range" min="0" max="1000" value="0"><span id="dur">0:00</span></div>
-  <input id="vol" type="range" min="0" max="100" value="80" style="width:90px" title="Volume">
+  <button id="toVideo" hidden>Return to video</button>
+  <input id="vol" type="range" min="0" max="100" value="80" title="Volume">
 </footer>
 
 <script>
 (function () {
+  'use strict';
   var MV = window.MediaVault;
-  var main = document.getElementById('main');
-  var lib = { artists: [] };
-  var state = null;
-  var tab = 'now';            // theme-local tab: 'now' | 'lib'
-  var seeking = false;
-  var renderedKey = '';
+  var $ = function (id) { return document.getElementById(id); };
+  var main = $('main');
 
-  function fmt(ms) {
-    var s = Math.floor((ms || 0) / 1000), m = Math.floor(s / 60);
-    return m + ':' + String(s % 60).padStart(2, '0');
-  }
+  if (!MV) { main.innerHTML = '<div class="empty"><h2>Open this theme in MediaVault</h2></div>'; return; }
+
+  var lib = { root: '', movies: [], shows: [], artists: [] };
+  var state = null;
+  var q = '';
+  var seeking = false;
+  var nav = { tab: 'music', artist: null, album: null, show: null };
+  try { var saved = localStorage.getItem('mv.classic.tab'); if (saved) nav.tab = saved; } catch (e) {}
+
+  // ---------- helpers ----------
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
     if (text != null) e.textContent = text;
     return e;
   }
+  function fmt(ms) {
+    var s = Math.floor((ms || 0) / 1000), m = Math.floor(s / 60);
+    return m + ':' + String(s % 60).padStart(2, '0');
+  }
   function bg(node, url) { if (url) node.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")'; }
-  function findArtist(n) { return lib.artists.find(function (a) { return a.name === n; }); }
+  function hue(name) { var h = 0; for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360; return h; }
+  function tint(node, name) {
+    var h = hue(name);
+    node.style.background = 'linear-gradient(135deg, hsl(' + h + ' 40% 30%), hsl(' + ((h + 40) % 360) + ' 45% 16%))';
+  }
+  function match(text) { return !q || text.toLowerCase().indexOf(q) !== -1; }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  function epLabel(e) { return e.episode > 0 ? 'E' + String(e.episode).padStart(2, '0') : ''; }
+  function hasLibrary() { return lib.artists.length || lib.movies.length || lib.shows.length; }
 
-  function artistCover(a) {
+  function card(name, meta, art, poster, onClick, imageUrl) {
+    var c = el('div', 'card');
+    var a = el('div', 'art' + (poster ? ' poster' : ''), imageUrl ? '' : name.charAt(0).toUpperCase());
+    if (imageUrl) bg(a, imageUrl); else tint(a, name);
+    c.appendChild(a);
+    c.appendChild(el('div', 'name', name));
+    if (meta) c.appendChild(el('div', 'meta', meta));
+    c.onclick = onClick;
+    return c;
+  }
+  function backLink(text, fn) { var b = el('button', 'back', '‹ ' + text); b.onclick = fn; return b; }
+  function artistImage(a) {
     if (a.image) return a.image;
     for (var i = 0; i < a.albums.length; i++) if (a.albums[i].cover) return a.albums[i].cover;
     return '';
   }
 
-  function viewNow() {
-    main.textContent = '';
-    if (!state || state.kind !== 'music') {
-      main.appendChild(el('div', 'empty', 'Pick a song from the library to start listening.'));
-      return;
+  // ---------- views ----------
+  function viewEmpty() {
+    var box = el('div', 'empty');
+    if (!lib.root) {
+      box.appendChild(el('h2', null, 'Choose your media folder'));
+      box.appendChild(el('div', null, 'Pick the folder that contains your Music, Movies and TV Shows folders.'));
+    } else {
+      box.appendChild(el('h2', null, 'Nothing found'));
+      box.appendChild(el('div', null, 'No media was found in ' + lib.root + '. It should contain Music, Movies and TV Shows folders.'));
     }
-    var wrap = el('div', 'now');
-    var cover = el('div', 'cover', state.cover ? '' : '♪');
-    bg(cover, state.cover);
-    var meta = el('div', 'meta');
-    meta.appendChild(el('div', 'title', state.title));
-    var artist = el('div', 'artist', state.artist);
-    artist.onclick = function () { MV.openArtist(state.artist); };
-    var album = el('div', 'album', state.album);
-    album.onclick = function () { MV.openAlbum(state.artist, state.album); };
-    meta.appendChild(artist); meta.appendChild(album);
-    wrap.appendChild(cover); wrap.appendChild(meta);
-    main.appendChild(wrap);
+    var b = el('button', null, lib.root ? 'Choose another folder' : 'Choose folder…');
+    b.onclick = function () { MV.openFolder(); };
+    box.appendChild(b);
+    main.appendChild(box);
   }
 
-  function viewArtists() {
-    main.textContent = '';
-    if (!lib.artists.length) { main.appendChild(el('div', 'empty', 'No music found.')); return; }
+  function viewMusic() {
+    if (nav.album) return viewAlbum();
+    if (nav.artist) return viewArtist();
+    var list = lib.artists.filter(function (a) { return match(a.name); });
+    if (!list.length) { main.appendChild(el('div', 'none', lib.artists.length ? 'No matches.' : 'No music found.')); return; }
     var grid = el('div', 'grid');
-    lib.artists.forEach(function (a) {
-      var c = el('div', 'card');
-      var art = el('div', 'art', artistCover(a) ? '' : '♪'); bg(art, artistCover(a));
-      c.appendChild(art); c.appendChild(el('div', 'name', a.name));
-      c.onclick = function () { MV.openArtist(a.name); };
-      grid.appendChild(c);
+    list.forEach(function (a) {
+      grid.appendChild(card(a.name, plural(a.albums.length, 'album', 'albums'), null, false,
+        function () { go({ artist: a.name }); }, artistImage(a)));
     });
     main.appendChild(grid);
   }
 
-  function viewArtist(name) {
-    main.textContent = '';
-    var back = el('button', 'back', '‹ Artists');
-    back.onclick = function () { tab = 'lib'; MV.showNowPlaying(); setTab('lib'); };
-    main.appendChild(back);
-    main.appendChild(el('h2', null, name));
-    var a = findArtist(name);
-    if (!a) { main.appendChild(el('div', 'empty', 'Artist not found.')); return; }
-    main.appendChild(el('div', 'sub', a.albums.length + (a.albums.length === 1 ? ' album' : ' albums')));
+  function viewArtist() {
+    var a = lib.artists.find(function (x) { return x.name === nav.artist; });
+    main.appendChild(backLink('Artists', function () { go({}); }));
+    if (!a) { main.appendChild(el('div', 'none', 'Artist not found.')); return; }
+    main.appendChild(el('h2', null, a.name));
+    main.appendChild(el('div', 'sub', plural(a.albums.length, 'album', 'albums')));
     var grid = el('div', 'grid');
-    a.albums.forEach(function (al) {
-      var c = el('div', 'card');
-      var art = el('div', 'art', al.cover ? '' : '♪'); bg(art, al.cover);
-      c.appendChild(art); c.appendChild(el('div', 'name', al.name));
-      c.onclick = function () { MV.openAlbum(name, al.name); };
-      grid.appendChild(c);
+    a.albums.filter(function (al) { return match(al.name); }).forEach(function (al) {
+      grid.appendChild(card(al.name, plural(al.tracks.length, 'track', 'tracks'), null, false,
+        function () { go({ artist: a.name, album: al.name }); }, al.cover));
     });
     main.appendChild(grid);
   }
 
-  function viewAlbum(artistName, albumName) {
-    main.textContent = '';
-    var back = el('button', 'back', '‹ ' + artistName);
-    back.onclick = function () { MV.openArtist(artistName); };
-    main.appendChild(back);
-    var a = findArtist(artistName);
-    var al = a && a.albums.find(function (x) { return x.name === albumName; });
-    if (!al) { main.appendChild(el('div', 'empty', 'Album not found.')); return; }
-    var head = el('div', 'albumhead');
-    var art = el('div', 'art'); bg(art, al.cover);
+  function viewAlbum() {
+    var a = lib.artists.find(function (x) { return x.name === nav.artist; });
+    var al = a && a.albums.find(function (x) { return x.name === nav.album; });
+    main.appendChild(backLink(nav.artist, function () { go({ artist: nav.artist }); }));
+    if (!al) { main.appendChild(el('div', 'none', 'Album not found.')); return; }
+    var head = el('div', 'head');
+    var art = el('div', 'art', al.cover ? '' : al.name.charAt(0).toUpperCase());
+    if (al.cover) bg(art, al.cover); else tint(art, al.name);
     var t = el('div');
     t.appendChild(el('h2', null, al.name));
-    t.appendChild(el('div', 'sub', artistName + ' · ' + al.tracks.length + ' tracks'));
+    t.appendChild(el('div', 'sub', a.name + ' · ' + plural(al.tracks.length, 'track', 'tracks')));
     head.appendChild(art); head.appendChild(t);
     main.appendChild(head);
     al.tracks.forEach(function (tr, i) {
-      var row = el('div', 'track');
-      row.dataset.path = tr.path;
-      row.appendChild(el('span', 'n', String(i + 1)));
-      row.appendChild(el('span', null, tr.title));
-      row.onclick = function () { MV.playTrack(tr.path); };
-      main.appendChild(row);
+      if (!match(tr.title)) return;
+      var r = el('div', 'row'); r.dataset.path = tr.path;
+      r.appendChild(el('span', 'n', String(i + 1)));
+      r.appendChild(el('span', 't', tr.title));
+      r.onclick = function () { MV.playMedia(tr.path); };
+      main.appendChild(r);
     });
   }
 
-  function renderView() {
-    if (!state) return;
-    var v = state.view || { type: 'nowplaying' };
-    var key = [v.type, v.artist, v.album, tab, lib.artists.length,
-               state.kind === 'music' ? state.title + state.cover : ''].join('|');
-    if (key === renderedKey) return;
-    renderedKey = key;
-    if (v.type === 'artist') viewArtist(v.artist);
-    else if (v.type === 'album') viewAlbum(v.artist, v.album);
-    else if (tab === 'lib') viewArtists();
-    else viewNow();
-    markPlaying();
+  function viewMovies() {
+    var list = lib.movies.filter(function (m) { return match(m.title); });
+    if (!list.length) { main.appendChild(el('div', 'none', lib.movies.length ? 'No matches.' : 'No movies found.')); return; }
+    main.appendChild(el('div', 'sub', plural(list.length, 'movie', 'movies')));
+    var grid = el('div', 'grid');
+    list.forEach(function (m) {
+      var c = card(m.title, '', null, true, function () { MV.playMedia(m.path); }, '');
+      grid.appendChild(c);
+    });
+    main.appendChild(grid);
+  }
+
+  function viewTv() {
+    if (nav.show) return viewShow();
+    var list = lib.shows.filter(function (s) { return match(s.name); });
+    if (!list.length) { main.appendChild(el('div', 'none', lib.shows.length ? 'No matches.' : 'No TV shows found.')); return; }
+    var grid = el('div', 'grid');
+    list.forEach(function (s) {
+      var eps = s.seasons.reduce(function (n, se) { return n + se.episodes.length; }, 0);
+      grid.appendChild(card(s.name, plural(eps, 'episode', 'episodes'), null, true,
+        function () { go({ show: s.name }); }, ''));
+    });
+    main.appendChild(grid);
+  }
+
+  function viewShow() {
+    var s = lib.shows.find(function (x) { return x.name === nav.show; });
+    main.appendChild(backLink('TV Shows', function () { go({}); }));
+    if (!s) { main.appendChild(el('div', 'none', 'Show not found.')); return; }
+    main.appendChild(el('h2', null, s.name));
+    main.appendChild(el('div', 'sub', plural(s.seasons.length, 'season', 'seasons')));
+    s.seasons.forEach(function (se) {
+      var eps = se.episodes.filter(function (e) { return match(e.title) || match(epLabel(e)); });
+      if (!eps.length) return;
+      main.appendChild(el('div', 'season', se.number > 0 ? 'Season ' + se.number : 'Episodes'));
+      eps.forEach(function (e) {
+        var r = el('div', 'row'); r.dataset.path = e.path;
+        r.appendChild(el('span', 'n', epLabel(e)));
+        r.appendChild(el('span', 't', e.title));
+        r.onclick = function () { MV.playMedia(e.path); };
+        main.appendChild(r);
+      });
+    });
   }
 
   function markPlaying() {
-    document.querySelectorAll('.track').forEach(function (r) { r.classList.remove('playing'); });
-    if (!state || state.kind !== 'music') return;
-    document.querySelectorAll('.track').forEach(function (r) {
-      var t = r.children[1] && r.children[1].textContent;
-      if (t === state.title) r.classList.add('playing');
-    });
+    var cur = state && state.path;
+    main.querySelectorAll('.row').forEach(function (r) { r.classList.toggle('playing', !!cur && r.dataset.path === cur); });
   }
 
-  function setTab(t) {
-    tab = t;
-    document.getElementById('tab-now').classList.toggle('active', t === 'now');
-    document.getElementById('tab-lib').classList.toggle('active', t === 'lib');
-    renderedKey = '';
-    if (state && state.view && state.view.type !== 'nowplaying') MV.showNowPlaying();
-    else renderView();
+  function render() {
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.tab === nav.tab); });
+    var keep = main.scrollTop;
+    main.textContent = '';
+    if (!hasLibrary()) viewEmpty();
+    else if (nav.tab === 'music') viewMusic();
+    else if (nav.tab === 'movies') viewMovies();
+    else viewTv();
+    markPlaying();
+    main.scrollTop = keep;
+  }
+
+  function go(p) {
+    nav.artist = p.artist || null; nav.album = p.album || null; nav.show = p.show || null;
+    q = ''; $('search').value = '';
+    main.scrollTop = 0;
+    render();
+  }
+
+  // ---------- player bar + now playing ----------
+  function subtitle(s) {
+    if (s.kind === 'music') return s.artist + ' — ' + s.album;
+    if (s.kind === 'video') {
+      if (s.show) return s.show + ' · S' + s.season + 'E' + String(s.episode).padStart(2, '0');
+      return 'Movie';
+    }
+    return '';
   }
 
   function renderBar() {
-    if (!state) return;
-    document.getElementById('play').textContent = state.playing ? '⏸' : '▶';
-    document.getElementById('pos').textContent = fmt(state.position);
-    document.getElementById('dur').textContent = fmt(state.duration);
-    if (!seeking) document.getElementById('seek').value = state.duration ? Math.round(1000 * state.position / state.duration) : 0;
-    var v = document.getElementById('vol'); if (document.activeElement !== v) v.value = state.volume;
+    var s = state; if (!s) return;
+    var any = s.kind !== 'none';
+    $('barTitle').textContent = any ? s.title : 'Nothing playing';
+    $('barSub').textContent = any ? subtitle(s) : '';
+    var th = $('thumb');
+    th.style.backgroundImage = ''; th.style.background = '';
+    if (s.kind === 'music' && s.cover) { th.textContent = ''; bg(th, s.cover); }
+    else { th.textContent = s.kind === 'video' ? '▶' : '♪'; }
+    $('play').textContent = s.playing ? '⏸' : '▶';
+    $('pos').textContent = fmt(s.position);
+    $('dur').textContent = fmt(s.duration);
+    if (!seeking) $('seek').value = s.duration ? Math.round(1000 * s.position / s.duration) : 0;
+    var v = $('vol'); if (document.activeElement !== v) v.value = s.volume;
+    $('toVideo').hidden = !(s.kind === 'video' && s.page === 'ui');
+
+    if ($('now').classList.contains('open')) {
+      if (s.kind !== 'music') { closeNow(); return; }
+      $('nowTitle').textContent = s.title;
+      $('nowArtist').textContent = s.artist;
+      $('nowAlbum').textContent = s.album;
+      var c = $('nowCover'); c.style.backgroundImage = '';
+      c.textContent = s.cover ? '' : '♪'; bg(c, s.cover);
+    }
   }
+  function openNow() {
+    if (!state || state.kind !== 'music') return;
+    $('now').classList.add('open'); renderBar();
+  }
+  function closeNow() { $('now').classList.remove('open'); }
 
-  function loadLib() { MV.getLibrary().then(function (l) { lib = l; renderedKey = ''; renderView(); }); }
+  // ---------- wiring ----------
+  document.querySelectorAll('.tab').forEach(function (t) {
+    t.onclick = function () {
+      nav.tab = t.dataset.tab;
+      try { localStorage.setItem('mv.classic.tab', nav.tab); } catch (e) {}
+      closeNow(); go({});
+    };
+  });
+  $('search').oninput = function (e) { q = e.target.value.trim().toLowerCase(); render(); };
 
-  document.getElementById('tab-now').onclick = function () { setTab('now'); };
-  document.getElementById('tab-lib').onclick = function () { setTab('lib'); };
-  document.getElementById('play').onclick = function () { MV.togglePlay(); };
-  document.getElementById('prev').onclick = function () { MV.previous(); };
-  document.getElementById('next').onclick = function () { MV.next(); };
-  var seek = document.getElementById('seek');
+  var pop = $('menuPop');
+  $('menuBtn').onclick = function (e) { e.stopPropagation(); pop.hidden = !pop.hidden; };
+  document.addEventListener('click', function () { pop.hidden = true; });
+  $('mOpen').onclick = function () { MV.openFolder(); };
+  $('mRescan').onclick = function () { MV.rescan(); };
+  $('mFull').onclick = function () { MV.toggleFullscreen(); };
+
+  $('play').onclick = function () { MV.togglePlay(); };
+  $('prev').onclick = function () { MV.previous(); };
+  $('next').onclick = function () { MV.next(); };
+  $('toVideo').onclick = function () { MV.showVideo(); };
+  $('nowInfo').onclick = function () { if (state && state.kind === 'video') MV.showVideo(); else openNow(); };
+  $('nowClose').onclick = closeNow;
+  $('nowArtist').onclick = function () { var a = state && state.artist; if (a) { closeNow(); nav.tab = 'music'; go({ artist: a }); } };
+  $('nowAlbum').onclick = function () { if (state) { closeNow(); nav.tab = 'music'; go({ artist: state.artist, album: state.album }); } };
+  var seek = $('seek');
   seek.oninput = function () { seeking = true; };
   seek.onchange = function () { seeking = false; if (state && state.duration) MV.seek(seek.value / 1000 * state.duration); };
-  document.getElementById('vol').oninput = function (e) { MV.setVolume(+e.target.value); };
+  $('vol').oninput = function (e) { MV.setVolume(+e.target.value); };
 
-  MV.on('library', loadLib);
-  MV.on('ready', loadLib);
-  MV.on('state', function (s) { state = s; renderBar(); renderView(); });
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeNow(); pop.hidden = true; }
+    else if (e.key === '/' && document.activeElement !== $('search')) { e.preventDefault(); $('search').focus(); }
+  });
+
+  function loadLibrary() { MV.getLibrary().then(function (l) { lib = l; render(); }); }
+  MV.on('library', loadLibrary);
+  MV.on('ready', loadLibrary);
+  MV.on('state', function (s) {
+    var newRoot = state ? state.root !== s.root : false;
+    var newPath = !state || state.path !== s.path;
+    state = s;
+    renderBar();
+    if (newRoot) loadLibrary();
+    if (newPath) markPlaying();
+  });
 })();
 </script>
 </body>

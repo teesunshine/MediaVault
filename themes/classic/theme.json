@@ -3,6 +3,7 @@
   "name": "Classic",
   "author": "MediaVault",
   "version": "1.0",
-  "description": "Now playing page with cover art and an artist / album browser. A starting point for your own theme.",
-  "entry": "index.html"
+  "description": "The whole MediaVault window as a web UI: Music, Movies and TV Shows, search, and a player bar. A starting point for your own theme.",
+  "entry": "index.html",
+  "layout": "full"
 }

@@ -50,12 +50,29 @@ private slots:
         QVERIFY(mv::loadThemeInfo(tmp.path() + "/plain", t));
         QCOMPARE(t.id, QString("plain"));   // folder name
         QVERIFY(t.hasEntry());              // index.html picked up automatically
+        QVERIFY(t.isFullUi());              // layout defaults to the full UI
+        QVERIFY(!t.isPanel());
 
         write(tmp.path() + "/empty/theme.json", R"({"name":"Nothing"})");
         QVERIFY(!mv::loadThemeInfo(tmp.path() + "/empty", t));   // no entry, no qss
 
         write(tmp.path() + "/bad/theme.json", "{ not json");
         QVERIFY(!mv::loadThemeInfo(tmp.path() + "/bad", t));
+    }
+
+    void layoutPanelAndInvalid()
+    {
+        QTemporaryDir tmp;
+        write(tmp.path() + "/p/theme.json", R"({"layout":"panel"})");
+        write(tmp.path() + "/p/index.html", "x");
+        mv::ThemeInfo t;
+        QVERIFY(mv::loadThemeInfo(tmp.path() + "/p", t));
+        QVERIFY(t.isPanel());
+        QVERIFY(!t.isFullUi());
+
+        write(tmp.path() + "/q/theme.json", R"({"layout":"sideways"})");
+        write(tmp.path() + "/q/index.html", "x");
+        QVERIFY(!mv::loadThemeInfo(tmp.path() + "/q", t));
     }
 
     void rejectsPathsOutsideTheFolder()
@@ -99,11 +116,20 @@ private slots:
         s.viewType = "album";
         s.viewArtist = "Pink Floyd";
         s.viewAlbum = "The Wall";
+        s.show = "Firefly";
+        s.season = 1;
+        s.episode = 2;
+        s.path = "/m/x.flac";
+        s.page = "video";
         const QJsonObject o = mv::snapshotToJson(s);
         QCOMPARE(o["kind"].toString(), QString("music"));
         QCOMPARE(o["playing"].toBool(), true);
         QCOMPARE(o["position"].toDouble(), 1500.0);
         QCOMPARE(o["view"].toObject()["type"].toString(), QString("album"));
+        QCOMPARE(o["show"].toString(), QString("Firefly"));
+        QCOMPARE(o["episode"].toInt(), 2);
+        QCOMPARE(o["path"].toString(), QString("/m/x.flac"));
+        QCOMPARE(o["page"].toString(), QString("video"));
     }
 
     void libraryJson()
@@ -121,7 +147,32 @@ private slots:
         a.albums.push_back(al);
         lib.artists.push_back(a);
 
-        const QJsonObject o = mv::musicLibraryToJson(lib);
+        mv::MediaItem movie;
+        movie.title = "Alien";
+        movie.path = "/m/alien.mkv";
+        lib.movies.push_back(movie);
+        mv::Show show;
+        show.name = "Firefly";
+        mv::Season season;
+        season.number = 1;
+        mv::MediaItem ep;
+        ep.title = "Serenity";
+        ep.season = 1;
+        ep.episode = 1;
+        ep.path = "/m/ff/s01e01.mkv";
+        season.episodes.push_back(ep);
+        show.seasons.push_back(season);
+        lib.shows.push_back(show);
+        lib.root = "/m";
+
+        const QJsonObject o = mv::libraryToJson(lib);
+        QCOMPARE(o["root"].toString(), QString("/m"));
+        QCOMPARE(o["movies"].toArray().at(0).toObject()["title"].toString(), QString("Alien"));
+        const QJsonObject sh = o["shows"].toArray().at(0).toObject();
+        QCOMPARE(sh["name"].toString(), QString("Firefly"));
+        const QJsonObject e0 = sh["seasons"].toArray().at(0).toObject()["episodes"].toArray().at(0).toObject();
+        QCOMPARE(e0["episode"].toInt(), 1);
+        QCOMPARE(e0["path"].toString(), QString("/m/ff/s01e01.mkv"));
         const QJsonObject art = o["artists"].toArray().at(0).toObject();
         QCOMPARE(art["name"].toString(), QString("Pink Floyd"));
         QCOMPARE(art["image"].toString(), QString());

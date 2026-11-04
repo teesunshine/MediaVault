@@ -1,11 +1,14 @@
 # Making a MediaVault theme
 
-A theme can do two things, separately or together:
+A theme can do these things, separately or together:
 
-- **Web panel**: an HTML page shown in place of the video while you're on **music**. It receives what's playing and can control playback. Clicking an artist or album in the library opens its page here.
-- **App style**: a Qt style sheet (`.qss`) and fonts that restyle the whole window (library list, buttons, menus).
+- **Be the whole app.** Its HTML page fills the window: library, browsing, search, player controls, everything. This is what the bundled **Classic** theme does and it is the default. Video plays on a native screen the page switches to (see below).
+- **Be a music panel** (`"layout": "panel"`). The older, smaller idea: the app keeps the *Legacy* layout (library list on the left) and your page replaces the video area while you're on music.
+- **Restyle the app**: a Qt style sheet (`.qss`) and fonts that restyle the native parts (the Legacy layout, the video screen's controls, menus).
 
-Pick one in **View → Theme**. **View → Theme → Open Themes Folder** opens the folder where your own themes go; bundled themes live in a `themes` folder next to the app. A theme in your folder with the same `id` as a bundled one replaces it. After editing a theme, use **Reload Themes**.
+Pick one in **View → Theme**. The last entry, **Legacy (media browser on the left)**, is the original layout with the library list beside the player and no web page at all. **Open Themes Folder** opens the folder for your own themes; bundled themes live in a `themes` folder next to the app. A theme in your folder with the same `id` as a bundled one replaces it. After editing a theme, use **Reload Themes**.
+
+If a build has no Qt WebEngine, web themes can't run and MediaVault falls back to the Legacy layout.
 
 ## Layout
 
@@ -28,12 +31,13 @@ my-theme/
   "version": "1.0",
   "description": "Shown as a tooltip in the menu",
   "entry": "index.html",
+  "layout": "full",
   "qss": "app.qss",
   "fonts": ["fonts/Some.ttf"]
 }
 ```
 
-Everything except `name` is optional, but a theme needs `entry` and/or `qss`. `entry` defaults to `index.html` if that file exists. Paths are relative to the theme folder and can't point outside it.
+Everything except `name` is optional, but a theme needs `entry` and/or `qss`. `entry` defaults to `index.html` if that file exists. `layout` is `"full"` (default: the page is the whole app) or `"panel"` (music panel inside the Legacy layout). Paths are relative to the theme folder and can't point outside it.
 
 ## The web page
 
@@ -54,15 +58,20 @@ MediaVault.on('library', ()    => { ... });   // the library was rescanned: call
 ```js
 {
   kind: "music" | "video" | "none",
-  title: "In The Flesh",
+  title: "In The Flesh",          // song, movie, or episode title
   artist: "Pink Floyd",           // music only
   album: "The Wall",              // music only
-  cover: "file:///.../cover.jpg", // "" if the album folder has no cover image
+  show: "Breaking Bad",           // TV only: the show's name
+  season: 1, episode: 2,          // TV only
+  path: "/media/Music/...",       // file that's loaded, "" if nothing is
+  cover: "file:///.../cover.jpg", // music: "" if the album folder has no cover image
   playing: true,
   position: 62000,                // milliseconds
   duration: 199000,
   volume: 80,                     // 0..100
-  view: {                         // what the user asked to see
+  page: "ui" | "video",           // full UI: which screen is showing (see "Video")
+  root: "/media",                 // the media folder, "" until the user picks one
+  view: {                         // panel themes only: what the user asked to see
     type: "nowplaying" | "artist" | "album",
     artist: "Pink Floyd",         // for "artist" and "album"
     album: "The Wall"             // for "album"
@@ -70,29 +79,44 @@ MediaVault.on('library', ()    => { ... });   // the library was rescanned: call
 }
 ```
 
-`view` changes when the user clicks an artist or album in the library list (or double-clicks a song, which sets it back to `nowplaying`). Render whatever it says.
+In a **panel** theme, `view` changes when the user clicks an artist or album in the Legacy library list (or double-clicks a song, which sets it back to `nowplaying`); render whatever it says. A **full** theme does its own navigation and can ignore `view`.
 
 ### Library
 
 ```js
 const lib = await MediaVault.getLibrary();
-// { artists: [ { name, image, albums: [ { name, cover, tracks: [ { title, path } ] } ] } ] }
+// {
+//   root: "/media",
+//   movies:  [ { title, path } ],
+//   shows:   [ { name, seasons: [ { number, episodes: [ { title, season, episode, path } ] } ] } ],
+//   artists: [ { name, image, albums: [ { name, cover, tracks: [ { title, path } ] } ] } ]
+// }
 ```
 
-`image` and `cover` are `file://` URLs, or `""` if there's none. Covers are picked up from an image named `cover`, `folder`, `front`, `album` or `artwork` (`.jpg`, `.png`, `.webp`) in the album folder; artist images from `artist`, `folder`, `photo` or `band` in the artist folder. `path` is what you pass to `playTrack`.
+Everything is sorted for display. `number`, `season` and `episode` are `0` when they couldn't be worked out. `image` and `cover` are `file://` URLs, or `""` if there's none. Covers are picked up from an image named `cover`, `folder`, `front`, `album` or `artwork` (`.jpg`, `.png`, `.webp`) in the album folder; artist images from `artist`, `folder`, `photo` or `band` in the artist folder. `path` is what you pass to `playMedia`.
 
 ### Commands
 
 ```js
 MediaVault.play();            MediaVault.pause();         MediaVault.togglePlay();
 MediaVault.next();            MediaVault.previous();
+MediaVault.stop();
 MediaVault.seek(ms);          MediaVault.setVolume(0-100);
-MediaVault.playTrack(path);
-MediaVault.openArtist(name);  MediaVault.openAlbum(artist, album);
-MediaVault.showNowPlaying();  MediaVault.toggleFullscreen();
+MediaVault.playMedia(path);   // any song, movie or episode (playTrack is the same thing)
+MediaVault.openFolder();      // asks the user for the media folder
+MediaVault.rescan();          // rescans it; you get a "library" event afterwards
+MediaVault.showVideo();       MediaVault.showLibrary();   // full UI: switch screens
+MediaVault.toggleFullscreen();
+
+// Panel themes only:
+MediaVault.openArtist(name);  MediaVault.openAlbum(artist, album);  MediaVault.showNowPlaying();
 ```
 
-`openArtist`, `openAlbum` and `showNowPlaying` change `state.view` (and trigger a `state` event), so your page doesn't need to keep its own navigation history if it doesn't want to.
+`openArtist`, `openAlbum` and `showNowPlaying` change `state.view` (and trigger a `state` event); full themes don't need them.
+
+### Video
+
+A web page can't draw video, so video plays on a native screen. In a full UI, `playMedia` on a movie or episode switches to that screen automatically (`state.page` becomes `"video"`). It has the usual controls plus a **Library** button that comes back to your page, and Esc leaves fullscreen. Playback carries on while your page is showing, so offer a way back: when `state.kind === "video"` and `state.page === "ui"`, call `MediaVault.showVideo()` from a "Return to video" button. Songs stay on your page.
 
 ### Developing without the app
 
@@ -103,9 +127,10 @@ Open your `index.html` in a browser and add a stub before your script, for examp
   window.MediaVault = window.MediaVault || {
     on(name, fn) { if (name === 'state') fn({kind:'music', title:'Test', artist:'A', album:'B', cover:'',
       playing:true, position:1000, duration:200000, volume:80, view:{type:'nowplaying'}}); return this; },
-    getLibrary: async () => ({ artists: [] }),
-    togglePlay(){}, next(){}, previous(){}, seek(){}, setVolume(){}, playTrack(){},
-    openArtist(){}, openAlbum(){}, showNowPlaying(){}, toggleFullscreen(){}
+    getLibrary: async () => ({ root: '', movies: [], shows: [], artists: [] }),
+    togglePlay(){}, next(){}, previous(){}, seek(){}, setVolume(){}, playMedia(){}, playTrack(){},
+    openFolder(){}, rescan(){}, showVideo(){}, showLibrary(){}, toggleFullscreen(){},
+    openArtist(){}, openAlbum(){}, showNowPlaying(){}
   };
 </script>
 ```
@@ -126,6 +151,7 @@ Fonts listed in `theme.json` are registered while the theme is active and can be
 
 ## Notes
 
-- Web themes need a build with Qt WebEngine. Builds without it still apply `qss` and fonts.
+- Web themes need a build with Qt WebEngine. Builds without it use the Legacy layout and still apply `qss` and fonts.
+- The bundled `themes/classic` is a complete working example of a full theme.
 - A theme page can only talk to MediaVault through the `MediaVault` object above.
 - Don't put other people's artwork, fonts or audio in a theme you publish unless you have the right to share them.
