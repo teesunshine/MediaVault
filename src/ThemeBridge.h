@@ -15,6 +15,8 @@ public:
     // Called by the main window.
     void setState(const QString &json);
     void setLibrary(const QString &json);
+    void postStatus(const QString &text) { emit statusMessage(text); }   // status bar text -> page
+    void notifyActivity() { emit userActivity(); }                       // mouse moved while fullscreen -> page
 
 public slots:   // --- called from JavaScript ---------------------------------
     QString getState() const { return m_stateJson; }
@@ -38,11 +40,16 @@ public slots:   // --- called from JavaScript ---------------------------------
     void openAlbum(const QString &artist, const QString &album) { emit openAlbumRequested(artist, album); }
     void showNowPlaying() { emit showNowPlayingRequested(); }
     void toggleFullscreen() { emit toggleFullscreenRequested(); }
+    // The page tells us where on screen the video should be drawn (CSS pixels
+    // relative to the page). A width or height of 0 hides the video.
+    void setVideoRect(int x, int y, int w, int h) { emit videoRectRequested(x, y, w, h); }
 
 signals:
     // To the page.
     void stateChanged(const QString &json);
     void libraryChanged();
+    void statusMessage(const QString &text);
+    void userActivity();
 
     // To the main window.
     void playRequested();
@@ -62,6 +69,7 @@ signals:
     void openAlbumRequested(const QString &artist, const QString &album);
     void showNowPlayingRequested();
     void toggleFullscreenRequested();
+    void videoRectRequested(int x, int y, int w, int h);
 
 private:
     QString m_stateJson = QStringLiteral("{}");

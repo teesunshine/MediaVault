@@ -65,6 +65,7 @@ struct PlaybackSnapshot {
     // Full-UI themes: "ui" while the web page is showing, "video" while the
     // native video screen is.
     QString page = QStringLiteral("ui");
+    bool fullscreen = false;   // the app window is fullscreen
     QString root;                            // media folder, or empty if none chosen yet
     // What the panel should be showing: "nowplaying", "artist" or "album".
     QString viewType = QStringLiteral("nowplaying");

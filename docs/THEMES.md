@@ -2,7 +2,7 @@
 
 A theme can do these things, separately or together:
 
-- **Be the whole app.** Its HTML page fills the window: library, browsing, search, player controls, everything. This is what the bundled **Classic** theme does and it is the default. Video plays on a native screen the page switches to (see below).
+- **Be the whole app.** Its HTML page fills the window: library, browsing, search, player controls, everything. This is what the bundled **Classic** theme does and it is the default. Video is drawn by the app over a region your page reserves, so your own top and bottom bars stay around it (see below).
 - **Be a music panel** (`"layout": "panel"`). The older, smaller idea: the app keeps the *Legacy* layout (library list on the left) and your page replaces the video area while you're on music.
 - **Restyle the app**: a Qt style sheet (`.qss`) and fonts that restyle the native parts (the Legacy layout, the video screen's controls, menus).
 
@@ -49,6 +49,8 @@ Your page is an ordinary local web page. Before your scripts run, MediaVault add
 MediaVault.on('ready',   state => { ... });   // once, when the bridge is connected
 MediaVault.on('state',   state => { ... });   // whenever anything changes (about twice a second while playing)
 MediaVault.on('library', ()    => { ... });   // the library was rescanned: call getLibrary() again
+MediaVault.on('status',  text  => { ... });   // a message the app's status bar would show (errors, Discord)
+MediaVault.on('activity', ()   => { ... });   // the mouse moved while the window is fullscreen
 ```
 
 `on('state', fn)` calls `fn` immediately if a state is already known. The same events are also dispatched on `window` as `mediavault:state`, `mediavault:ready` and `mediavault:library` (`event.detail` is the state).
@@ -69,7 +71,8 @@ MediaVault.on('library', ()    => { ... });   // the library was rescanned: call
   position: 62000,                // milliseconds
   duration: 199000,
   volume: 80,                     // 0..100
-  page: "ui" | "video",           // full UI: which screen is showing (see "Video")
+  page: "ui" | "video",           // full UI: "video" while your page has reserved the video region
+  fullscreen: false,              // the window is fullscreen
   root: "/media",                 // the media folder, "" until the user picks one
   view: {                         // panel themes only: what the user asked to see
     type: "nowplaying" | "artist" | "album",
@@ -105,7 +108,8 @@ MediaVault.seek(ms);          MediaVault.setVolume(0-100);
 MediaVault.playMedia(path);   // any song, movie or episode (playTrack is the same thing)
 MediaVault.openFolder();      // asks the user for the media folder
 MediaVault.rescan();          // rescans it; you get a "library" event afterwards
-MediaVault.showVideo();       MediaVault.showLibrary();   // full UI: switch screens
+MediaVault.showVideo();       MediaVault.showLibrary();   // full UI: switch between video and library
+MediaVault.bindVideo(el);     MediaVault.unbindVideo();   // full UI: where to draw the video
 MediaVault.toggleFullscreen();
 
 // Panel themes only:
@@ -116,7 +120,19 @@ MediaVault.openArtist(name);  MediaVault.openAlbum(artist, album);  MediaVault.s
 
 ### Video
 
-A web page can't draw video, so video plays on a native screen. In a full UI, `playMedia` on a movie or episode switches to that screen automatically (`state.page` becomes `"video"`). It has the usual controls plus a **Library** button that comes back to your page, and Esc leaves fullscreen. Playback carries on while your page is showing, so offer a way back: when `state.kind === "video"` and `state.page === "ui"`, call `MediaVault.showVideo()` from a "Return to video" button. Songs stay on your page.
+A web page can't draw video itself, so the app draws it *over* your page. Reserve a region with an element and bind it:
+
+```js
+MediaVault.on('state', s => {
+  const onVideo = s.page === 'video';
+  slot.hidden = !onVideo;
+  if (onVideo) MediaVault.bindVideo(slot); else MediaVault.unbindVideo();
+});
+```
+
+While bound, the video is placed exactly over the element (its size is re-checked about ten times a second and on window resize). Your top bar, player bar and anything else outside it remain your page, so the video matches your theme. Nothing you draw *inside* the region is visible. `playMedia` on a movie or episode sets `state.page` to `"video"`; songs keep it `"ui"`. Use `showVideo()` / `showLibrary()` to switch, and offer a way back to the video when `state.kind === "video"` and `state.page === "ui"`.
+
+In fullscreen (`state.fullscreen`), bars can't float over the video, so hide them (the Classic theme does after 3 seconds) and bring them back on the `activity` event or your own `mousemove`. Esc leaves fullscreen. The app's own status bar is hidden in a full UI; show the `status` messages in your own.
 
 ### Developing without the app
 
@@ -129,7 +145,7 @@ Open your `index.html` in a browser and add a stub before your script, for examp
       playing:true, position:1000, duration:200000, volume:80, view:{type:'nowplaying'}}); return this; },
     getLibrary: async () => ({ root: '', movies: [], shows: [], artists: [] }),
     togglePlay(){}, next(){}, previous(){}, seek(){}, setVolume(){}, playMedia(){}, playTrack(){},
-    openFolder(){}, rescan(){}, showVideo(){}, showLibrary(){}, toggleFullscreen(){},
+    openFolder(){}, rescan(){}, showVideo(){}, showLibrary(){}, toggleFullscreen(){}, bindVideo(){}, unbindVideo(){},
     openArtist(){}, openAlbum(){}, showNowPlaying(){}
   };
 </script>

@@ -120,10 +120,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_controlsBar = new QWidget;
     auto *controls = new QHBoxLayout(m_controlsBar);
     controls->setContentsMargins(0, 0, 0, 0);
-    m_backBtn = new QPushButton(tr("◀ Library"));
-    m_backBtn->setFlat(true);
-    m_backBtn->setVisible(false);   // only in the full-UI layout
-    controls->addWidget(m_backBtn);
     controls->addWidget(prevBtn);
     controls->addWidget(m_playBtn);
     controls->addWidget(stopBtn);
@@ -144,18 +140,20 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Two layouts share the same player widgets:
     //  - Legacy: library list on the left, player on the right.
-    //  - Full UI: a theme's web page is the whole window; video plays on a native
-    //    screen (m_right) that the page switches to and a "Library" button leaves.
+    //  - Full UI: a theme's web page is the whole window. The video widget floats
+    //    over the region the page reserves, so the page's own bars stay around it.
     m_splitter = new QSplitter;
     m_splitter->addWidget(m_left);
     m_splitter->addWidget(m_right);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);
     m_splitter->setSizes({340, 860});
-    m_fullStack = new QStackedWidget;
+    m_fullPage = new QWidget;
+    auto *fullLayout = new QVBoxLayout(m_fullPage);
+    fullLayout->setContentsMargins(0, 0, 0, 0);
     m_shell = new QStackedWidget;
     m_shell->addWidget(m_splitter);
-    m_shell->addWidget(m_fullStack);
+    m_shell->addWidget(m_fullPage);
     setCentralWidget(m_shell);
 
     // --- Playback engine -----------------------------------------------
@@ -213,7 +211,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(nextBtn, &QPushButton::clicked, this, &MainWindow::playNext);
     connect(prevBtn, &QPushButton::clicked, this, &MainWindow::playPrevious);
     connect(fullBtn, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
-    connect(m_backBtn, &QPushButton::clicked, this, &MainWindow::showLibraryPage);
+    // The theme draws its own status bar in the full UI: forward messages to it.
+    connect(statusBar(), &QStatusBar::messageChanged, this, [this](const QString &text) {
+        if (m_layoutMode == LayoutMode::Full && m_themePanel && !text.isEmpty())
+            m_themePanel->bridge()->postStatus(text);
+    });
 
     connect(m_volume, &QSlider::valueChanged, this, [this](int v) {
         m_audio->setVolume(v / 100.0f);
@@ -682,6 +684,10 @@ void MainWindow::ensureThemePanel()
     connect(b, &ThemeBridge::rescanRequested, this, &MainWindow::rescan);
     connect(b, &ThemeBridge::showVideoRequested, this, &MainWindow::showVideoPage);
     connect(b, &ThemeBridge::showLibraryRequested, this, &MainWindow::showLibraryPage);
+    connect(b, &ThemeBridge::videoRectRequested, this, [this](int x, int y, int w, int h) {
+        m_videoRect = QRect(x, y, w, h);
+        positionVideo();
+    });
 
     b->setLibrary(libraryJson());
 }
@@ -754,41 +760,70 @@ void MainWindow::setLayoutMode(LayoutMode mode)
 {
     m_layoutMode = mode;
     const bool full = mode == LayoutMode::Full;
-    m_backBtn->setVisible(full);
+    if (!isFullScreen())
+        statusBar()->setVisible(!full);
 
     if (full) {
-        m_fullStack->addWidget(m_themePanel);   // page 0: the theme's web UI
-        m_fullStack->addWidget(m_right);        // page 1: native video screen
-        m_shell->setCurrentWidget(m_fullStack);
-        if (m_current && categoryOf(m_current) != 2
-            && m_player->playbackState() != QMediaPlayer::StoppedState)
-            showVideoPage();
-        else
-            showLibraryPage();
+        // The video widget leaves the legacy player and floats over the page.
+        m_stage->removeWidget(m_video);
+        m_video->setParent(m_fullPage);
+        m_video->hide();
+        auto *fl = m_fullPage->layout();
+        if (fl->indexOf(m_themePanel) < 0)
+            fl->addWidget(m_themePanel);
+        m_right->setParent(nullptr);   // out of the splitter
+        m_right->hide();
+        m_shell->setCurrentWidget(m_fullPage);
+        m_videoShown = m_current && categoryOf(m_current) != 2
+                       && m_player->playbackState() != QMediaPlayer::StoppedState;
+        positionVideo();
     } else {
-        m_splitter->addWidget(m_right);
+        m_videoShown = false;
+        m_video->hide();
+        if (m_stage->indexOf(m_video) < 0)
+            m_stage->insertWidget(0, m_video);
+        if (m_splitter->indexOf(m_right) < 0)
+            m_splitter->addWidget(m_right);
         m_splitter->setSizes({340, 860});
         m_right->show();
-        if (m_themePanel && m_hasTheme && m_activeTheme.isPanel())
+        m_video->show();
+        if (m_themePanel && m_hasTheme && m_activeTheme.isPanel() && m_stage->indexOf(m_themePanel) < 0)
             m_stage->addWidget(m_themePanel);   // legacy layout with a music panel
         m_shell->setCurrentWidget(m_splitter);
     }
     updateStage();
 }
 
+void MainWindow::positionVideo()
+{
+    const bool show = m_layoutMode == LayoutMode::Full && m_videoShown
+                      && m_videoRect.width() > 1 && m_videoRect.height() > 1;
+    if (!show) {
+        if (m_layoutMode == LayoutMode::Full)
+            m_video->hide();
+        return;
+    }
+    if (m_video->geometry() != m_videoRect)
+        m_video->setGeometry(m_videoRect);
+    m_video->show();
+    m_video->raise();
+}
+
 void MainWindow::showVideoPage()
 {
     if (m_layoutMode != LayoutMode::Full)
         return;
-    m_fullStack->setCurrentWidget(m_right);
+    m_videoShown = true;
+    positionVideo();
     pushThemeState();
 }
 
 void MainWindow::showLibraryPage()
 {
-    if (m_layoutMode != LayoutMode::Full || !m_themePanel)
+    if (m_layoutMode != LayoutMode::Full)
         return;
-    m_fullStack->setCurrentWidget(m_themePanel);
+    m_videoShown = false;
+    positionVideo();
     pushThemeState();
 }
 
@@ -798,8 +833,9 @@ void MainWindow::updateStage()
     const bool panelInStage = m_layoutMode == LayoutMode::Legacy && m_themePanel && m_hasTheme
                               && m_activeTheme.isPanel() && m_stage->indexOf(m_themePanel) >= 0;
     const bool showPanel = panelInStage && m_musicStage;
-    m_stage->setCurrentWidget(showPanel ? static_cast<QWidget *>(m_themePanel)
-                                        : static_cast<QWidget *>(m_video));
+    QWidget *target = showPanel ? static_cast<QWidget *>(m_themePanel) : static_cast<QWidget *>(m_video);
+    if (m_stage->indexOf(target) >= 0)
+        m_stage->setCurrentWidget(target);
 }
 
 QString MainWindow::libraryJson() const
@@ -842,8 +878,9 @@ void MainWindow::pushThemeState()
     s.positionMs = m_player->position();
     s.durationMs = m_player->duration();
     s.volume = m_volume->value();
-    s.page = (m_layoutMode == LayoutMode::Full && m_fullStack->currentWidget() == m_right)
+    s.page = (m_layoutMode == LayoutMode::Full && m_videoShown)
                  ? QStringLiteral("video") : QStringLiteral("ui");
+    s.fullscreen = isFullScreen();
     s.viewType = m_viewType;
     s.viewArtist = m_viewArtist;
     s.viewAlbum = m_viewAlbum;
@@ -932,16 +969,26 @@ void MainWindow::setFullscreenMode(bool on)
         m_nowPlaying->show();
         m_controlsBar->show();
         menuBar()->show();
-        statusBar()->show();
+        statusBar()->setVisible(m_layoutMode != LayoutMode::Full);
         if (m_wasMaximized)
             showMaximized();
         else
             showNormal();
     }
+    pushThemeState();
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange)
+        pushThemeState();
 }
 
 void MainWindow::showControls()
 {
+    if (m_layoutMode == LayoutMode::Full && m_themePanel)
+        m_themePanel->bridge()->notifyActivity();
     m_controlsBar->show();
     m_video->unsetCursor();
     m_stage->unsetCursor();

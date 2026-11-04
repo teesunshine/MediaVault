@@ -57,7 +57,7 @@ The status clears when you stop playback or quit. If Discord isn't running yet, 
 
 ## Themes and layouts
 
-MediaVault's window is a theme. The default, **Classic**, is a web UI that fills the whole window: Music, Movies and TV Shows tabs, search, and a player bar. Songs play inside it; movies and episodes play on a native video screen with a **Library** button to get back.
+MediaVault's window is a theme. The default, **Classic**, is a web UI that fills the whole window: Music, Movies and TV Shows tabs, search, and a player bar. Songs and video both play inside it: the video fills the page's video area between the top bar and the player bar. Music artists and albums, and TV shows and seasons, have a grid/list toggle.
 
 **View → Theme** switches themes. The last entry, **Legacy (media browser on the left)**, is the original layout: library list beside the player. A theme can also be just a Qt style sheet and fonts, or a music-only panel for the Legacy layout. Put your own in **View → Theme → Open Themes Folder**.
 

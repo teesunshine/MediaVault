@@ -159,6 +159,7 @@ QJsonObject snapshotToJson(const PlaybackSnapshot &s)
     o["duration"] = static_cast<double>(s.durationMs);
     o["volume"] = s.volume;
     o["page"] = s.page;
+    o["fullscreen"] = s.fullscreen;
     o["root"] = s.root;
     o["view"] = view;
     return o;

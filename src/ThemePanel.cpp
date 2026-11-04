@@ -49,6 +49,33 @@ const char kBootstrap[] = R"JS(
       mv.setVolume = function (p) { b.setVolume(Math.round(Math.max(0, Math.min(100, p)))); };
       mv.playTrack = function (path) { b.playMedia(path); };
       mv.playMedia = function (path) { b.playMedia(path); };
+      var lastRect = '';
+      mv.setVideoRect = function (x, y, w, h) {
+        var r = [x, y, w, h].map(function (v) { return Math.round(v) | 0; });
+        var k = r.join(',');
+        if (k === lastRect) return;
+        lastRect = k;
+        b.setVideoRect(r[0], r[1], r[2], r[3]);
+      };
+      var bound = null, boundTimer = 0;
+      function sync() {
+        if (!bound) return;
+        var rc = bound.getBoundingClientRect();
+        mv.setVideoRect(rc.left, rc.top, rc.width, rc.height);
+      }
+      // Reserve `el` for the video: it is drawn exactly over that element.
+      mv.bindVideo = function (el) {
+        mv.unbindVideo();
+        bound = el; sync();
+        boundTimer = setInterval(sync, 100);
+        window.addEventListener('resize', sync);
+      };
+      mv.unbindVideo = function () {
+        bound = null;
+        if (boundTimer) { clearInterval(boundTimer); boundTimer = 0; }
+        window.removeEventListener('resize', sync);
+        mv.setVideoRect(0, 0, 0, 0);
+      };
       mv.openArtist = function (a) { b.openArtist(a); };
       mv.openAlbum = function (a, al) { b.openAlbum(a, al); };
       mv.getLibrary = function () {
@@ -57,6 +84,8 @@ const char kBootstrap[] = R"JS(
         });
       };
       b.stateChanged.connect(function (s) { mv.state = JSON.parse(s); mv._emit('state', mv.state); });
+      b.statusMessage.connect(function (t) { mv._emit('status', t); });
+      b.userActivity.connect(function () { mv._emit('activity'); });
       b.libraryChanged.connect(function () { mv._emit('library'); });
       b.getState(function (s) {
         mv.state = JSON.parse(s);

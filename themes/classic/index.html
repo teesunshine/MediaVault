@@ -93,12 +93,41 @@
   #vol { width: 90px; }
   #toVideo { background: var(--accent); color: #07121f; font-weight: 600; padding: 7px 14px; border-radius: 999px; white-space: nowrap; }
   #toVideo[hidden] { display: none; }
+  /* ---- list / grid toggle ---- */
+  .tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; min-height: 30px; }
+  .tools .sub { margin: 0; }
+  .vt { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+  .vt button { padding: 5px 12px; color: var(--dim); font-size: 16px; line-height: 1; }
+  .vt button:hover { color: var(--text); }
+  .vt button.on { background: var(--panel2); color: var(--text); }
+  .lrow { display: flex; align-items: center; gap: 14px; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+  .lrow:hover { background: var(--panel2); }
+  .lrow .lthumb { width: 46px; height: 46px; border-radius: 6px; background: #262a36 center/cover no-repeat; display: grid;
+                  place-items: center; font-weight: 700; color: #ffffff55; flex: none; overflow: hidden; }
+  .lrow .lthumb.poster { height: 62px; }
+  .lrow .lname { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lrow .lmeta { color: var(--dim); font-size: 13px; flex: none; }
+  .art.season { aspect-ratio: 3/2; font-size: 30px; }
+
+  /* ---- video screen: the app draws the video over #videoSlot ---- */
+  #videoSlot { flex: 1; background: #000; display: none; min-height: 0; }
+  body.video main { display: none; }
+  body.video #videoSlot { display: block; }
+  #backLib { display: none; color: var(--accent); padding: 6px 12px; border-radius: 8px; white-space: nowrap; }
+  #backLib:hover { background: var(--panel2); }
+  body.video #backLib { display: inline-block; }
+  #statusbar { height: 24px; flex: none; padding: 3px 22px; font-size: 12px; color: var(--dim); background: var(--panel);
+               border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #statusbar.msg { color: var(--text); }
+  body.video.fs.hidebars .top, body.video.fs.hidebars footer, body.video.fs.hidebars #statusbar { display: none; }
+  body.video.fs.hidebars { cursor: none; }
   @media (max-width: 760px) { .nowinfo { width: 150px; } #vol { display: none; } .tabs .tab { padding: 7px 10px; } }
 </style>
 </head>
 <body>
 <div class="top">
   <div class="brand">Media<span>Vault</span></div>
+  <button id="backLib" title="Back to the library">◀ Library</button>
   <nav class="tabs">
     <button class="tab" data-tab="music">Music</button>
     <button class="tab" data-tab="movies">Movies</button>
@@ -117,6 +146,7 @@
 </div>
 
 <main id="main"></main>
+<div id="videoSlot"></div>
 
 <div id="now">
   <button class="close" id="nowClose" title="Close">✕</button>
@@ -142,6 +172,7 @@
   <button id="toVideo" hidden>Return to video</button>
   <input id="vol" type="range" min="0" max="100" value="80" title="Volume">
 </footer>
+<div id="statusbar">Ready</div>
 
 <script>
 (function () {
@@ -156,7 +187,14 @@
   var state = null;
   var q = '';
   var seeking = false;
-  var nav = { tab: 'music', artist: null, album: null, show: null };
+  var nav = { tab: 'music', artist: null, album: null, show: null, season: null };
+  var views = { music: 'grid', tv: 'grid' };   // grid or list, remembered per tab
+  try {
+    ['music', 'tv'].forEach(function (k) {
+      var v = localStorage.getItem('mv.classic.view.' + k);
+      if (v === 'grid' || v === 'list') views[k] = v;
+    });
+  } catch (e) {}
   try { var saved = localStorage.getItem('mv.classic.tab'); if (saved) nav.tab = saved; } catch (e) {}
 
   // ---------- helpers ----------
@@ -191,6 +229,35 @@
     c.onclick = onClick;
     return c;
   }
+  function lrow(name, meta, imageUrl, poster, onClick) {
+    var r = el('div', 'lrow');
+    var t = el('div', 'lthumb' + (poster ? ' poster' : ''), imageUrl ? '' : name.charAt(0).toUpperCase());
+    if (imageUrl) bg(t, imageUrl); else tint(t, name);
+    r.appendChild(t);
+    r.appendChild(el('div', 'lname', name));
+    if (meta) r.appendChild(el('div', 'lmeta', meta));
+    r.onclick = onClick;
+    return r;
+  }
+  // Header row for a view that can switch between grid and list.
+  function tools(key, subText) {
+    var row = el('div', 'tools');
+    row.appendChild(el('div', 'sub', subText || ''));
+    var vt = el('div', 'vt');
+    [['grid', '▦', 'Grid view'], ['list', '☰', 'List view']].forEach(function (m) {
+      var b = el('button', views[key] === m[0] ? 'on' : '', m[1]);
+      b.title = m[2];
+      b.onclick = function () {
+        if (views[key] === m[0]) return;
+        views[key] = m[0];
+        try { localStorage.setItem('mv.classic.view.' + key, m[0]); } catch (e) {}
+        render();
+      };
+      vt.appendChild(b);
+    });
+    row.appendChild(vt);
+    return row;
+  }
   function backLink(text, fn) { var b = el('button', 'back', '‹ ' + text); b.onclick = fn; return b; }
   function artistImage(a) {
     if (a.image) return a.image;
@@ -219,10 +286,13 @@
     if (nav.artist) return viewArtist();
     var list = lib.artists.filter(function (a) { return match(a.name); });
     if (!list.length) { main.appendChild(el('div', 'none', lib.artists.length ? 'No matches.' : 'No music found.')); return; }
-    var grid = el('div', 'grid');
+    main.appendChild(tools('music', plural(list.length, 'artist', 'artists')));
+    var grid = el('div', views.music === 'list' ? 'list' : 'grid');
     list.forEach(function (a) {
-      grid.appendChild(card(a.name, plural(a.albums.length, 'album', 'albums'), null, false,
-        function () { go({ artist: a.name }); }, artistImage(a)));
+      var meta = plural(a.albums.length, 'album', 'albums');
+      var open = function () { go({ artist: a.name }); };
+      grid.appendChild(views.music === 'list' ? lrow(a.name, meta, artistImage(a), false, open)
+                                              : card(a.name, meta, null, false, open, artistImage(a)));
     });
     main.appendChild(grid);
   }
@@ -232,11 +302,13 @@
     main.appendChild(backLink('Artists', function () { go({}); }));
     if (!a) { main.appendChild(el('div', 'none', 'Artist not found.')); return; }
     main.appendChild(el('h2', null, a.name));
-    main.appendChild(el('div', 'sub', plural(a.albums.length, 'album', 'albums')));
-    var grid = el('div', 'grid');
+    main.appendChild(tools('music', plural(a.albums.length, 'album', 'albums')));
+    var grid = el('div', views.music === 'list' ? 'list' : 'grid');
     a.albums.filter(function (al) { return match(al.name); }).forEach(function (al) {
-      grid.appendChild(card(al.name, plural(al.tracks.length, 'track', 'tracks'), null, false,
-        function () { go({ artist: a.name, album: al.name }); }, al.cover));
+      var meta = plural(al.tracks.length, 'track', 'tracks');
+      var open = function () { go({ artist: a.name, album: al.name }); };
+      grid.appendChild(views.music === 'list' ? lrow(al.name, meta, al.cover, false, open)
+                                              : card(al.name, meta, null, false, open, al.cover));
     });
     main.appendChild(grid);
   }
@@ -280,33 +352,64 @@
     if (nav.show) return viewShow();
     var list = lib.shows.filter(function (s) { return match(s.name); });
     if (!list.length) { main.appendChild(el('div', 'none', lib.shows.length ? 'No matches.' : 'No TV shows found.')); return; }
-    var grid = el('div', 'grid');
+    main.appendChild(tools('tv', plural(list.length, 'show', 'shows')));
+    var grid = el('div', views.tv === 'list' ? 'list' : 'grid');
     list.forEach(function (s) {
       var eps = s.seasons.reduce(function (n, se) { return n + se.episodes.length; }, 0);
-      grid.appendChild(card(s.name, plural(eps, 'episode', 'episodes'), null, true,
-        function () { go({ show: s.name }); }, ''));
+      var meta = plural(eps, 'episode', 'episodes');
+      var open = function () { go({ show: s.name }); };
+      grid.appendChild(views.tv === 'list' ? lrow(s.name, meta, '', true, open)
+                                           : card(s.name, meta, null, true, open, ''));
     });
     main.appendChild(grid);
   }
 
+  function episodeRows(se, eps) {
+    eps.forEach(function (e) {
+      var r = el('div', 'row'); r.dataset.path = e.path;
+      r.appendChild(el('span', 'n', epLabel(e)));
+      r.appendChild(el('span', 't', e.title));
+      r.onclick = function () { MV.playMedia(e.path); };
+      main.appendChild(r);
+    });
+  }
+  function seasonName(se) { return se.number > 0 ? 'Season ' + se.number : 'Episodes'; }
+
   function viewShow() {
     var s = lib.shows.find(function (x) { return x.name === nav.show; });
+    if (nav.season != null && s) return viewSeason(s);
     main.appendChild(backLink('TV Shows', function () { go({}); }));
     if (!s) { main.appendChild(el('div', 'none', 'Show not found.')); return; }
     main.appendChild(el('h2', null, s.name));
-    main.appendChild(el('div', 'sub', plural(s.seasons.length, 'season', 'seasons')));
+    main.appendChild(tools('tv', plural(s.seasons.length, 'season', 'seasons')));
+    if (views.tv === 'grid') {
+      // One card per season; a season opens to its episodes.
+      var grid = el('div', 'grid');
+      s.seasons.forEach(function (se) {
+        if (q && !se.episodes.some(function (e) { return match(e.title) || match(epLabel(e)); })) return;
+        var c = card(seasonName(se), plural(se.episodes.length, 'episode', 'episodes'), null, false,
+          function () { go({ show: s.name, season: se.number }); }, '');
+        c.querySelector('.art').classList.add('season');
+        grid.appendChild(c);
+      });
+      main.appendChild(grid);
+      return;
+    }
     s.seasons.forEach(function (se) {
       var eps = se.episodes.filter(function (e) { return match(e.title) || match(epLabel(e)); });
       if (!eps.length) return;
-      main.appendChild(el('div', 'season', se.number > 0 ? 'Season ' + se.number : 'Episodes'));
-      eps.forEach(function (e) {
-        var r = el('div', 'row'); r.dataset.path = e.path;
-        r.appendChild(el('span', 'n', epLabel(e)));
-        r.appendChild(el('span', 't', e.title));
-        r.onclick = function () { MV.playMedia(e.path); };
-        main.appendChild(r);
-      });
+      main.appendChild(el('div', 'season', seasonName(se)));
+      episodeRows(se, eps);
     });
+  }
+
+  function viewSeason(s) {
+    var se = s.seasons.find(function (x) { return x.number === nav.season; });
+    main.appendChild(backLink(s.name, function () { go({ show: s.name }); }));
+    if (!se) { main.appendChild(el('div', 'none', 'Season not found.')); return; }
+    main.appendChild(el('h2', null, s.name));
+    main.appendChild(el('div', 'sub', seasonName(se) + ' · ' + plural(se.episodes.length, 'episode', 'episodes')));
+    episodeRows(se, se.episodes.filter(function (e) { return match(e.title) || match(epLabel(e)); }));
   }
 
   function markPlaying() {
@@ -327,7 +430,7 @@
   }
 
   function go(p) {
-    nav.artist = p.artist || null; nav.album = p.album || null; nav.show = p.show || null;
+    nav.artist = p.artist || null; nav.album = p.album || null; nav.show = p.show || null; nav.season = p.season == null ? null : p.season;
     q = ''; $('search').value = '';
     main.scrollTop = 0;
     render();
@@ -357,7 +460,7 @@
     $('dur').textContent = fmt(s.duration);
     if (!seeking) $('seek').value = s.duration ? Math.round(1000 * s.position / s.duration) : 0;
     var v = $('vol'); if (document.activeElement !== v) v.value = s.volume;
-    $('toVideo').hidden = !(s.kind === 'video' && s.page === 'ui');
+    $('toVideo').hidden = !(s.kind === 'video' && s.page !== 'video');
 
     if ($('now').classList.contains('open')) {
       if (s.kind !== 'music') { closeNow(); return; }
@@ -380,6 +483,7 @@
       nav.tab = t.dataset.tab;
       try { localStorage.setItem('mv.classic.tab', nav.tab); } catch (e) {}
       closeNow(); go({});
+      if (state && state.page === 'video') MV.showLibrary();
     };
   });
   $('search').oninput = function (e) { q = e.target.value.trim().toLowerCase(); render(); };
@@ -394,6 +498,7 @@
   $('play').onclick = function () { MV.togglePlay(); };
   $('prev').onclick = function () { MV.previous(); };
   $('next').onclick = function () { MV.next(); };
+  $('backLib').onclick = function () { MV.showLibrary(); };
   $('toVideo').onclick = function () { MV.showVideo(); };
   $('nowInfo').onclick = function () { if (state && state.kind === 'video') MV.showVideo(); else openNow(); };
   $('nowClose').onclick = closeNow;
@@ -409,6 +514,46 @@
     else if (e.key === '/' && document.activeElement !== $('search')) { e.preventDefault(); $('search').focus(); }
   });
 
+  // ---------- video screen ----------
+  // The app draws the video over #videoSlot, so the top bar, player bar and
+  // status bar around it stay part of the page.
+  var onVideo = false, hideTimer = 0, overBars = false;
+  function setBarsHidden(h) { document.body.classList.toggle('hidebars', h); }
+  function armHide() {
+    clearTimeout(hideTimer);
+    if (!document.body.classList.contains('fs')) return;
+    hideTimer = setTimeout(function () {
+      if (overBars) armHide(); else setBarsHidden(true);
+    }, 3000);
+  }
+  function wake() { setBarsHidden(false); armHide(); }
+  function syncVideo(s) {
+    var v = s.page === 'video';
+    document.body.classList.toggle('video', v);
+    document.body.classList.toggle('fs', !!s.fullscreen && v);
+    if (v && !onVideo && MV.bindVideo) MV.bindVideo($('videoSlot'));
+    if (!v && onVideo && MV.unbindVideo) MV.unbindVideo();
+    onVideo = v;
+    if (v && s.fullscreen) { if (!hideTimer) wake(); }
+    else { clearTimeout(hideTimer); hideTimer = 0; setBarsHidden(false); }
+  }
+  ['mousemove', 'mousedown', 'keydown'].forEach(function (n) {
+    window.addEventListener(n, function () { if (onVideo) wake(); });
+  });
+  [document.querySelector('.top'), document.querySelector('footer')].forEach(function (b) {
+    b.addEventListener('mouseenter', function () { overBars = true; });
+    b.addEventListener('mouseleave', function () { overBars = false; });
+  });
+  MV.on('activity', function () { if (onVideo) wake(); });
+
+  var statusTimer = 0;
+  MV.on('status', function (text) {
+    var sb = $('statusbar');
+    sb.textContent = text; sb.classList.add('msg');
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(function () { sb.textContent = lib.root || 'Ready'; sb.classList.remove('msg'); }, 6000);
+  });
+
   function loadLibrary() { MV.getLibrary().then(function (l) { lib = l; render(); }); }
   MV.on('library', loadLibrary);
   MV.on('ready', loadLibrary);
@@ -416,6 +561,7 @@
     var newRoot = state ? state.root !== s.root : false;
     var newPath = !state || state.path !== s.path;
     state = s;
+    syncVideo(s);
     renderBar();
     if (newRoot) loadLibrary();
     if (newPath) markPlaying();

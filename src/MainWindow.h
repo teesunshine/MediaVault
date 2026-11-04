@@ -2,6 +2,7 @@
 
 #include <QElapsedTimer>
 #include <QMainWindow>
+#include <QRect>
 #include <QSet>
 #include <QVector>
 
@@ -41,6 +42,7 @@ public:
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private slots:
     void chooseFolder();
@@ -78,8 +80,9 @@ private:
     void playPath(const QString &path);
     QString libraryJson() const;
     void setLayoutMode(LayoutMode mode);   // Legacy: library list + player. Full: the theme is the whole window.
-    void showVideoPage();                  // full UI: native video screen
-    void showLibraryPage();                // full UI: the theme's web page
+    void showVideoPage();                  // full UI: the page shows its video region
+    void showLibraryPage();                // full UI: the page shows the library
+    void positionVideo();                  // full UI: puts the video widget over the page's region
     void setFullscreenMode(bool on);
     void showControls();
     void populate();
@@ -117,10 +120,11 @@ private:
 
     QStackedWidget *m_stage = nullptr;      // [video | theme panel] (legacy layout)
     QStackedWidget *m_shell = nullptr;      // [legacy splitter | full-UI stack]
-    QStackedWidget *m_fullStack = nullptr;  // full UI: [theme web page | native video screen]
+    QWidget *m_fullPage = nullptr;          // full UI: the theme page, with the video widget floating over it
+    QRect m_videoRect;                      // where the page wants the video (page pixels)
+    bool m_videoShown = false;              // full UI: page is on its video screen
     QSplitter *m_splitter = nullptr;
-    QWidget *m_right = nullptr;             // video + controls; moves between the two layouts
-    QPushButton *m_backBtn = nullptr;       // "Library" button on the video screen (full UI)
+    QWidget *m_right = nullptr;             // legacy layout: video + controls
     LayoutMode m_layoutMode = LayoutMode::Legacy;
     QString m_themeId;                      // what the user picked: "legacy" or a theme id
     bool m_legacy = false;
